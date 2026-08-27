@@ -60,4 +60,4 @@ InTorrent is released under a custom MIT-based license with an attribution requi
 
 Built on top of [libtorrent](https://github.com/arvidn/libtorrent) by Arvid Norberg and contributors.
 
-InTorrent is developed and maintained by [MR.ZSDEV](https://github.com/zsdev07)
+InTorrent is developed and maintained by [Developer](https://github.com/zsdev07)
