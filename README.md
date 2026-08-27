@@ -9,13 +9,13 @@
 
 # InTorrent
 
-InTorrent is an open-source Flutter plugin that wraps the [libtorrent](https://libtorrent.org) C++ engine via a small, focused Dart FFI API. It's built to do one thing well: let a Flutter app add a magnet link, track its status, and stream a file from it” with a minimal, predictable surface that stays easy to maintain.
+InTorrent is an open-source Flutter plugin that wraps the [libtorrent](https://libtorrent.org) C++ engine via a small, focused Dart FFI API. It's built to do one thing well: let a Flutter app add a magnet link, track its status, and stream a file from it with a minimal, predictable surface that stays easy to maintain.
 
-> **Status: Early development.** InTorrent is under active design and is not yet ready for production use. The core API is being built out ” check back for updates, or follow along in the commit history.
+> **Status: Early development.** InTorrent is under active design and is not yet ready for production use. The core API is being built out check back for updates, or follow along in the commit history.
 
 ## Why InTorrent?
 
-Most existing Flutter libtorrent wrappers try to expose the entire libtorrent API surface, which makes them heavy, hard to keep in sync with the native engine, and prone to breaking when native struct layouts drift out of sync with their Dart bindings. InTorrent takes a different approach: a small, deliberately scoped API, with the native and Dart sides built and versioned together in the same repository ” so they can't silently drift apart.
+Most existing Flutter libtorrent wrappers try to expose the entire libtorrent API surface, which makes them heavy, hard to keep in sync with the native engine, and prone to breaking when native struct layouts drift out of sync with their Dart bindings. InTorrent takes a different approach: a small, deliberately scoped API, with the native and Dart sides built and versioned together in the same repository so they can't silently drift apart.
 
 ## Planned API
 
