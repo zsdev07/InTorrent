@@ -11,11 +11,11 @@
 
 InTorrent is an open-source Flutter plugin that wraps the [libtorrent](https://libtorrent.org) C++ engine via a small, focused Dart FFI API. It's built to do one thing well: let a Flutter app add a magnet link, track its status, and stream a file from it with a minimal, predictable surface that stays easy to maintain.
 
-> **Status: Early development.** InTorrent is under active design and is not yet ready for production use. The core API is being built out check back for updates, or follow along in the commit history.
+> **Status: Early development.** InTorrent is under active design and is not yet ready for production use. The core API is being built out, check back for updates, or follow along in the commit history.
 
 ## Why InTorrent?
 
-Most existing Flutter libtorrent wrappers try to expose the entire libtorrent API surface, which makes them heavy, hard to keep in sync with the native engine, and prone to breaking when native struct layouts drift out of sync with their Dart bindings. InTorrent takes a different approach: a small, deliberately scoped API, with the native and Dart sides built and versioned together in the same repository so they can't silently drift apart.
+Most existing Flutter libtorrent wrappers try to expose the entire libtorrent API surface, which makes them heavy, hard to keep in sync with the native engine, and prone to breaking when native struct layouts drift out of sync with their Dart bindings. InTorrent takes a different approach: a small, deliberately scoped API, with the native and Dart sides built and versioned together in the same repository, so they can't silently drift apart.
 
 ## Planned API
 
@@ -49,7 +49,7 @@ Build instructions will be added once the initial native build pipeline (GitHub 
 ## Design Principles
 
 - **Small surface, fewer breakages.** Fewer exposed functions means less that can drift or go stale.
-- **Pinned native source.** The native libtorrent version InTorrent builds against is pinned to an exact commit or tag â€” never a moving branch â€” so the version you depend on is the version you actually get.
+- **Pinned native source.** The native libtorrent version InTorrent builds against is pinned to an exact commit or tag, never a moving branch, so the version you depend on is the version you actually get.
 - **Native and Dart bindings live together.** Both halves of the FFI boundary are maintained in the same repository, in the same commits, to avoid the struct-mismatch class of bugs common in wrapper plugins.
 
 ## License
