@@ -1,4 +1,4 @@
-.. image:: docs/img/logo.png
+![InTorrent](docs/img/logo.png)
 
 ![Status](https://img.shields.io/badge/status-early%20development-orange)
 ![License](https://img.shields.io/badge/license-MIT%20(attribution)-blue)
