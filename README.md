@@ -1,4 +1,6 @@
-![InTorrent](docs/img/logo.png)
+<p align="center">
+  <img src="docs/img/logo.png" alt="InTorrent Banner" width="500" />
+</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-early%20development-orange" alt="Status" />
@@ -29,7 +31,7 @@ InTorrent's API surface is intentionally small:
 | Function | Description |
 |---|---|
 | `addMagnet(uri)` | Adds a magnet link and begins metadata/peer resolution. Returns a torrent handle/id. |
-| `getStatus(id)` | Returns live status for a torrent progress, peer count, download state. |
+| `getStatus(id)` | Returns live status for a torrent's progress, peer count, download state. |
 | `streamUrl(id, fileIndex)` | Begins sequential (playback-order) downloading of a file inside the torrent and returns a local URL to stream it from. |
 | `pause(id)` | Pauses a torrent. |
 | `resume(id)` | Resumes a paused torrent. |
