@@ -1,11 +1,16 @@
 ![InTorrent](docs/img/logo.png)
 
-![Status](https://img.shields.io/badge/status-early%20development-orange)
-![License](https://img.shields.io/badge/license-MIT%20(attribution)-blue)
-![Build - Android](https://img.shields.io/badge/build-android-lightgrey)
-![Build - Windows](https://img.shields.io/badge/build-windows-lightgrey)
-![Build - Linux](https://img.shields.io/badge/build-linux-lightgrey)
-![Build - macOS](https://img.shields.io/badge/build-macos-lightgrey)
+<p align="center">
+  <img src="https://img.shields.io/badge/status-early%20development-orange" alt="Status" />
+  <img src="https://img.shields.io/badge/license-MIT%20(attribution)-blue" alt="License" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/build-android-lightgrey" alt="Build - Android" />
+  <img src="https://img.shields.io/badge/build-windows-lightgrey" alt="Build - Windows" />
+  <img src="https://img.shields.io/badge/build-linux-lightgrey" alt="Build - Linux" />
+  <img src="https://img.shields.io/badge/build-macos-lightgrey" alt="Build - macOS" />
+</p>
 
 # InTorrent
 
