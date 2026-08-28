@@ -1,0 +1,99 @@
+# .github/workflows/build.yml - InTorrent
+#
+# PLACEMENT: .github/workflows/build.yml at the repo root (GitHub only
+# recognizes workflows in exactly this path).
+#
+# CURRENT SCOPE: static verification only (pub get + analyze). This
+# catches Dart-side mistakes (like a bindings signature that no longer
+# matches intorrent.h) early, but does NOT yet compile the native C++/
+# CMake side - a plugin folder alone can't be Gradle-built; that needs
+# a small companion "example" app that depends on this plugin, which
+# is the standard Flutter plugin convention and is planned as a
+# follow-up. Once that exists, add a step here that runs
+# `flutter build apk --debug` inside example/ - that's what will
+# actually prove the CMake/libtorrent build succeeds on a clean machine.
+
+name: InTorrent CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static-check:
+    name: Static verification (pub get + analyze)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Get Packages
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+  native-build-check:
+    name: Build native library via generated example app
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.0'
+          channel: 'stable'
+          cache: true
+
+      # `flutter create` always produces current, correct Android
+      # boilerplate (gradle wrapper, AndroidManifest, etc.) - safer
+      # than hand-writing and committing that generated code ourselves.
+      - name: Generate example app scaffold
+        run: flutter create --platforms=android --org com.zsdev.intorrent example
+
+      # Overlay our real pubspec.yaml (path dependency on InTorrent)
+      # and main.dart (the smoke test) on top of the generated scaffold.
+      - name: Apply InTorrent test overlay
+        run: |
+          cp ci/example_overlay/pubspec.yaml example/pubspec.yaml
+          cp ci/example_overlay/lib/main.dart example/lib/main.dart
+
+      - name: Get Packages
+        run: |
+          cd example
+          flutter pub get
+
+      # This is the step that actually proves the whole pipeline works:
+      # Gradle building this app triggers InTorrent's android/build.gradle,
+      # which runs native/CMakeLists.txt, which fetches and compiles the
+      # exact pinned libtorrent tag. If this succeeds, the .so compiled
+      # cleanly on a totally clean machine - the same guarantee InFlex's
+      # own build will get.
+      - name: Build APK (compiles InTorrent's native code)
+        run: |
+          cd example
+          flutter build apk --debug
+
+      - name: Upload APK for manual testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: intorrent-smoke-test-apk
+          path: example/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 14
