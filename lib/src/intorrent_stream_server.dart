@@ -1,0 +1,208 @@
+// intorrent_stream_server.dart
+//
+// A single local HTTP server (127.0.0.1, lazily started) that serves
+// torrent files to your video player as they download. Every byte
+// range is checked against the native side's intorrent_is_range_available
+// before being read from disk - libtorrent preallocates files at full
+// size immediately, so file size alone is never a safe signal that
+// bytes are actually downloaded.
+
+import 'dart:async';
+import 'dart:ffi';
+import 'dart:io';
+import 'package:ffi/ffi.dart';
+import 'intorrent_bindings.dart';
+
+// Local, diagnostic-only mirror of IntorrentState from intorrent.h -
+// just for building readable stall messages here. The real enum
+// mapping app code should use lives in intorrent.dart's TorrentState.
+String _stateName(int value) {
+  const names = [
+    'queued',
+    'checking',
+    'downloading_metadata',
+    'downloading',
+    'finished',
+    'seeding',
+  ];
+  return (value >= 0 && value < names.length) ? names[value] : 'unknown';
+}
+
+class _StreamEntry {
+  _StreamEntry({
+    required this.filePath,
+    required this.fileIndex,
+    required this.totalSize,
+  });
+
+  final String filePath;
+  final int fileIndex;
+  final int totalSize;
+}
+
+class IntorrentStreamServer {
+  IntorrentStreamServer._();
+  static final IntorrentStreamServer instance = IntorrentStreamServer._();
+
+  /// How long to wait for a requested byte range to become available
+  /// before giving up. Generous, because a fresh torrent can genuinely
+  /// take a while to find its first peers - but bounded, so a dead
+  /// torrent fails loudly instead of hanging your player forever.
+  static const Duration rangeWaitTimeout = Duration(seconds: 30);
+
+  /// Called whenever a range request times out. Lets app code (or you,
+  /// during testing) see *why* a stream stalled - not just that it did.
+  void Function(int id, String reason)? onStreamStalled;
+
+  HttpServer? _server;
+  final Map<int, _StreamEntry> _entries = {};
+
+  /// Registers torrent [id]'s stream info and ensures the server is
+  /// running. Returns the URL your player should use.
+  Future<Uri> registerAndGetUrl({
+    required int id,
+    required String filePath,
+    required int fileIndex,
+    required int totalSize,
+  }) async {
+    _entries[id] = _StreamEntry(
+      filePath: filePath,
+      fileIndex: fileIndex,
+      totalSize: totalSize,
+    );
+
+    final server = await _ensureStarted();
+    return Uri.parse('http://127.0.0.1:${server.port}/stream/$id');
+  }
+
+  Future<HttpServer> _ensureStarted() async {
+    final existing = _server;
+    if (existing != null) return existing;
+
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    _server = server;
+    server.listen(_handleRequest, onError: (_) {});
+    return server;
+  }
+
+  /// Pulls a live status snapshot to explain WHY a range timed out -
+  /// e.g. "0 peers" tells a completely different story than "80% done,
+  /// 12 peers" (the latter suggests a piece-picking bug, not a dead
+  /// swarm). This is exactly the kind of detail raw logs made us dig
+  /// for by hand before - now it's built into the failure itself.
+  String _diagnoseStall(IntorrentBindings bindings, int id) {
+    final statusPtr = calloc<IntorrentStatusNative>();
+    try {
+      final result = bindings.getStatus(id, statusPtr);
+      if (result != 0) {
+        return 'torrent $id no longer exists.';
+      }
+      final s = statusPtr.ref;
+      return 'torrent state=${_stateName(s.state)}, peers=${s.numPeers}, '
+          'seeds=${s.numSeeds}, progress=${(s.progress * 100).toStringAsFixed(1)}%.';
+    } finally {
+      calloc.free(statusPtr);
+    }
+  }
+
+  Future<void> _handleRequest(HttpRequest request) async {
+    final segments = request.uri.pathSegments;
+    if (segments.length != 2 || segments[0] != 'stream') {
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
+      return;
+    }
+
+    final id = int.tryParse(segments[1]);
+    final entry = id == null ? null : _entries[id];
+    if (entry == null) {
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
+      return;
+    }
+
+    var start = 0;
+    var end = entry.totalSize - 1; // inclusive
+    var isPartial = false;
+
+    final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
+    if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+      final parts = rangeHeader.substring(6).split('-');
+      final parsedStart = int.tryParse(parts[0]);
+      final parsedEnd =
+          (parts.length > 1 && parts[1].isNotEmpty) ? int.tryParse(parts[1]) : null;
+      if (parsedStart != null) {
+        start = parsedStart;
+        end = parsedEnd ?? end;
+        isPartial = true;
+      }
+    }
+
+    final length = end - start + 1;
+
+    // Wait until the native side confirms these bytes have actually
+    // been downloaded - do NOT trust the file's on-disk size.
+    // Bounded by rangeWaitTimeout so a dead/stalled torrent fails
+    // loudly instead of hanging the player forever.
+    final bindings = IntorrentBindings();
+    final deadline = DateTime.now().add(rangeWaitTimeout);
+
+    while (bindings.isRangeAvailable(id!, entry.fileIndex, start, length) != 1) {
+      // Torrent could have been removed mid-stream (e.g. user backed
+      // out of the player) - stop waiting instead of looping forever.
+      if (!_entries.containsKey(id)) {
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+        return;
+      }
+
+      if (DateTime.now().isAfter(deadline)) {
+        final reason = _diagnoseStall(bindings, id);
+        onStreamStalled?.call(id, reason);
+
+        request.response.statusCode = HttpStatus.gatewayTimeout; // 504
+        request.response.headers.contentType = ContentType.text;
+        request.response.write(
+            'InTorrent: range not available after ${rangeWaitTimeout.inSeconds}s. $reason');
+        await request.response.close();
+        return;
+      }
+
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+
+    request.response.statusCode =
+        isPartial ? HttpStatus.partialContent : HttpStatus.ok;
+    request.response.headers
+      ..set(HttpHeaders.acceptRangesHeader, 'bytes')
+      ..set(HttpHeaders.contentLengthHeader, length)
+      ..contentType = ContentType('video', 'mp4');
+    if (isPartial) {
+      request.response.headers
+          .set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/${entry.totalSize}');
+    }
+
+    final file = File(entry.filePath).openSync();
+    try {
+      file.setPositionSync(start);
+      const chunkSize = 64 * 1024;
+      var remaining = length;
+      while (remaining > 0) {
+        final readSize = remaining < chunkSize ? remaining : chunkSize;
+        final chunk = file.readSync(readSize);
+        if (chunk.isEmpty) break;
+        request.response.add(chunk);
+        remaining -= chunk.length;
+      }
+    } finally {
+      file.closeSync();
+      await request.response.close();
+    }
+  }
+
+  /// Stops serving torrent [id] (call this when the user leaves the
+  /// player, alongside `remove(id)`).
+  void unregister(int id) {
+    _entries.remove(id);
+  }
+}
