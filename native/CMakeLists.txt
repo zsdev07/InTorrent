@@ -50,6 +50,17 @@ set(python-bindings OFF CACHE BOOL "" FORCE)
 # simple - this is a deliberate, revisitable trade-off, not an oversight.
 set(TORRENT_USE_LIBCRYPTO OFF CACHE BOOL "" FORCE)
 
+# WebTorrent (browser-peer support via WebRTC) is ON by default in
+# libtorrent 2.1.x, and pulls in the bundled libdatachannel dependency -
+# which hard-requires OpenSSL or GnuTLS regardless of the
+# TORRENT_USE_LIBCRYPTO setting above (that flag only controls
+# libtorrent's own BitTorrent-protocol encryption, not this separate
+# WebRTC dependency). InFlex is a native Android app, not a browser
+# peer, so this feature is unnecessary - and turning it off avoids
+# needing to wire up OpenSSL for Android entirely, which was a real
+# source of pain in the old plugin's build.
+set(webtorrent OFF CACHE BOOL "" FORCE)
+
 FetchContent_MakeAvailable(libtorrent)
 
 # --- InTorrent itself ---------------------------------------------------
