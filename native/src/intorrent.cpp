@@ -11,11 +11,14 @@
 #include <libtorrent/magnet_uri.hpp>
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/error_code.hpp>
+#include <libtorrent/torrent_info.hpp>
+#include <libtorrent/torrent_flags.hpp>
 
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <atomic>
+#include <cstring>
 
 namespace {
 
@@ -114,22 +117,27 @@ int32_t translate_state(lt::torrent_status::state_t lt_state) {
 
 } // namespace
 
+// Small shared helper - every id-based function looks up into the same
+// map the same way, so this stays in one place.
+namespace {
+bool find_handle(int32_t id, lt::torrent_handle& out_handle) {
+    std::lock_guard<std::mutex> lock(g_handles_mutex);
+    auto it = g_handles.find(id);
+    if (it == g_handles.end()) {
+        return false;
+    }
+    out_handle = it->second;
+    return true;
+}
+} // namespace
+
 extern "C" int32_t intorrent_get_status(int32_t id, IntorrentStatus* out_status) {
     if (out_status == nullptr) {
         return -1;
     }
 
     lt::torrent_handle handle;
-    {
-        std::lock_guard<std::mutex> lock(g_handles_mutex);
-        auto it = g_handles.find(id);
-        if (it == g_handles.end()) {
-            return -1;
-        }
-        handle = it->second;
-    }
-
-    if (!handle.is_valid()) {
+    if (!find_handle(id, handle) || !handle.is_valid()) {
         return -1;
     }
 
@@ -144,4 +152,93 @@ extern "C" int32_t intorrent_get_status(int32_t id, IntorrentStatus* out_status)
     out_status->is_paused = status.paused ? 1 : 0;
 
     return 0;
+}
+
+extern "C" int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
+                                             char* out_path, int32_t path_buf_len,
+                                             int64_t* out_size) {
+    if (out_path == nullptr || out_size == nullptr) {
+        return -1;
+    }
+
+    lt::torrent_handle handle;
+    if (!find_handle(id, handle) || !handle.is_valid()) {
+        return -1;
+    }
+
+    std::shared_ptr<const lt::torrent_info> info = handle.torrent_file();
+    if (!info) {
+        // Metadata hasn't arrived yet - caller should wait and retry
+        // (check status.state == INTORRENT_STATE_DOWNLOADING_METADATA).
+        return -1;
+    }
+
+    const lt::file_storage& files = info->files();
+    if (file_index < 0 || file_index >= files.num_files()) {
+        return -1;
+    }
+
+    // Deprioritize every file, then set only the requested one to
+    // top priority - we only want to spend bandwidth on what's
+    // actually being streamed.
+    std::vector<lt::download_priority_t> priorities(
+        files.num_files(), lt::download_priority_t{0});
+    priorities[file_index] = lt::download_priority_t{7};
+    handle.prioritize_files(priorities);
+
+    // Sequential (playback-order) piece downloading instead of
+    // libtorrent's default rarest-first - essential for streaming.
+    handle.set_flags(lt::torrent_flags::sequential_download,
+                      lt::torrent_flags::sequential_download);
+
+    std::string save_path = handle.status().save_path;
+    std::string file_path = files.file_path(file_index, save_path);
+
+    if (static_cast<int32_t>(file_path.size()) >= path_buf_len) {
+        return -1; // caller's buffer too small
+    }
+
+    std::strncpy(out_path, file_path.c_str(), path_buf_len);
+    *out_size = files.file_size(file_index);
+
+    return 0;
+}
+
+extern "C" int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
+                                                 int64_t start, int64_t length) {
+    lt::torrent_handle handle;
+    if (!find_handle(id, handle) || !handle.is_valid()) {
+        return -1;
+    }
+
+    std::shared_ptr<const lt::torrent_info> info = handle.torrent_file();
+    if (!info) {
+        return -1;
+    }
+
+    const lt::file_storage& files = info->files();
+    if (file_index < 0 || file_index >= files.num_files()) {
+        return -1;
+    }
+
+    lt::torrent_status status = handle.status(lt::torrent_handle::query_pieces);
+
+    // Convert the file-relative byte range into torrent-relative piece
+    // indices, then check every piece in that range is marked downloaded.
+    const std::int64_t file_offset = files.file_offset(file_index);
+    const std::int64_t piece_size = info->piece_length();
+
+    const std::int64_t range_start = file_offset + start;
+    const std::int64_t range_end = file_offset + start + length; // exclusive
+
+    const int first_piece = static_cast<int>(range_start / piece_size);
+    const int last_piece = static_cast<int>((range_end - 1) / piece_size);
+
+    for (int piece = first_piece; piece <= last_piece; ++piece) {
+        if (piece < 0 || piece >= status.pieces.size() || !status.pieces[piece]) {
+            return 0; // at least one needed piece isn't downloaded yet
+        }
+    }
+
+    return 1;
 }
