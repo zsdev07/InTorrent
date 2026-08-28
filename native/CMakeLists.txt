@@ -27,7 +27,7 @@ include(FetchContent)
 # actually want to move to a newer libtorrent - never let this drift
 # to a branch name like "RC_2_1" or "master". That ambiguity is
 # exactly what we're avoiding by building InTorrent in the first place.
-set(LIBTORRENT_TAG "v2.0.10" CACHE STRING "Exact libtorrent release tag to build against")
+set(LIBTORRENT_TAG "v2.1.1" CACHE STRING "Exact libtorrent release tag to build against")
 
 FetchContent_Declare(
     libtorrent
