@@ -1,0 +1,29 @@
+# pubspec.yaml - InTorrent example app
+#
+# This file gets copied OVER the auto-generated one from `flutter create`
+# during CI (see .github/workflows/build.yml). The path dependency below
+# is what makes this a real end-to-end test: it forces Flutter to run
+# InTorrent's own android/build.gradle -> native/CMakeLists.txt exactly
+# the way InFlex will, once InTorrent is a real dependency there.
+
+name: intorrent_example
+description: Minimal smoke-test app exercising every InTorrent function.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  intorrent:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
