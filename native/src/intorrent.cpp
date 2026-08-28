@@ -89,3 +89,59 @@ extern "C" int32_t intorrent_add_magnet(const char* uri) {
 
     return id;
 }
+
+namespace {
+
+// Translates libtorrent's own state_t into InTorrent's own stable
+// enum, so a libtorrent upgrade can never silently change what our
+// Dart side sees.
+int32_t translate_state(lt::torrent_status::state_t lt_state) {
+    switch (lt_state) {
+        case lt::torrent_status::checking_files:
+            return INTORRENT_STATE_CHECKING;
+        case lt::torrent_status::downloading_metadata:
+            return INTORRENT_STATE_DOWNLOADING_METADATA;
+        case lt::torrent_status::downloading:
+            return INTORRENT_STATE_DOWNLOADING;
+        case lt::torrent_status::finished:
+            return INTORRENT_STATE_FINISHED;
+        case lt::torrent_status::seeding:
+            return INTORRENT_STATE_SEEDING;
+        default:
+            return INTORRENT_STATE_UNKNOWN;
+    }
+}
+
+} // namespace
+
+extern "C" int32_t intorrent_get_status(int32_t id, IntorrentStatus* out_status) {
+    if (out_status == nullptr) {
+        return -1;
+    }
+
+    lt::torrent_handle handle;
+    {
+        std::lock_guard<std::mutex> lock(g_handles_mutex);
+        auto it = g_handles.find(id);
+        if (it == g_handles.end()) {
+            return -1;
+        }
+        handle = it->second;
+    }
+
+    if (!handle.is_valid()) {
+        return -1;
+    }
+
+    lt::torrent_status status = handle.status();
+
+    out_status->total_bytes = status.total_wanted;
+    out_status->downloaded_bytes = status.total_wanted_done;
+    out_status->progress = status.progress;
+    out_status->state = translate_state(status.state);
+    out_status->num_peers = status.num_peers;
+    out_status->num_seeds = status.num_seeds;
+    out_status->is_paused = status.paused ? 1 : 0;
+
+    return 0;
+}
