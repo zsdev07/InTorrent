@@ -55,6 +55,34 @@ typedef struct {
 // Returns 0 on success, -1 if `id` does not correspond to a known torrent.
 int32_t intorrent_get_status(int32_t id, IntorrentStatus* out_status);
 
+// Prepares torrent `id` for streaming file `file_index` inside it:
+// sets sequential (playback-order) piece downloading and deprioritizes
+// every other file in the torrent.
+//
+// out_path: caller-allocated buffer that will receive the absolute
+//           file path on disk (null-terminated). Note: libtorrent
+//           preallocates this file at its FULL final size immediately -
+//           its existence/size does NOT mean the bytes are downloaded.
+//           Always check intorrent_is_range_available() before reading.
+// path_buf_len: size of out_path, in bytes.
+// out_size: receives the file's total size in bytes.
+//
+// Returns 0 on success, -1 on failure (bad id, bad file_index, or
+// out_path too small).
+int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
+                                  char* out_path, int32_t path_buf_len,
+                                  int64_t* out_size);
+
+// Checks whether the byte range [start, start + length) of file
+// `file_index` for torrent `id` has actually been downloaded yet.
+// Call this before reading any byte range from the file on disk -
+// the file's on-disk size is not a reliable signal (see above).
+//
+// Returns 1 if the whole range is available, 0 if any part of it is
+// still missing, -1 on error (bad id or file_index).
+int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
+                                      int64_t start, int64_t length);
+
 #ifdef __cplusplus
 }
 #endif
