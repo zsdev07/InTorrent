@@ -148,6 +148,11 @@ class _SmokeTestPageState extends State<SmokeTestPage> {
               ],
             ),
             const Divider(),
+            if (_streamUri != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: SelectableText('Stream URL: $_streamUri'),
+              ),
             Expanded(
               child: ListView.builder(
                 itemCount: _log.length,
