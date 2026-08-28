@@ -1,0 +1,62 @@
+// android/build.gradle - InTorrent
+//
+// PLACEMENT: android/build.gradle, at the plugin's top level - a
+// sibling of native/ and lib/, NOT inside either of them.
+//
+//   InTorrent/
+//     android/
+//       build.gradle   <- this file
+//     native/
+//       CMakeLists.txt
+//     lib/
+//       intorrent.dart
+//
+// WHY THIS FILE IS SIMPLE: the old plugin's build.gradle contained ~50
+// lines of custom logic to download a prebuilt .so from a GitHub
+// Release matching its own version number - and that's exactly where
+// the bugs lived (a nonexistent v2.0.0 tag, a wrong "v" prefix, and a
+// silent fallback that built from whatever source happened to be on
+// disk). InTorrent has none of that. Android's own externalNativeBuild
+// just runs our CMakeLists.txt directly, which itself pins the exact
+// libtorrent tag via FetchContent. One source of truth, no custom
+// download machinery to get wrong.
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.zsdev.intorrent'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 21
+
+        ndk {
+            // Match these to whatever ABIs InFlex itself ships -
+            // building extra ABIs you don't use just slows every build.
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+        }
+
+        externalNativeBuild {
+            cmake {
+                // -DLIBTORRENT_TAG could be overridden here with
+                // arguments += "-DLIBTORRENT_TAG=v2.1.2" if you ever
+                // want to bump the version without editing CMakeLists.txt
+                // directly - but editing CMakeLists.txt directly, in its
+                // own commit, is the clearer choice day-to-day.
+                cppFlags ''
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "../native/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
