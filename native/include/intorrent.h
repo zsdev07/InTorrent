@@ -25,6 +25,36 @@ extern "C" {
 // (e.g. the magnet URI could not be parsed).
 int32_t intorrent_add_magnet(const char* uri);
 
+// Torrent state, defined by InTorrent (NOT libtorrent's own state_t) -
+// so a libtorrent upgrade can never silently renumber these on us.
+typedef enum {
+    INTORRENT_STATE_QUEUED = 0,
+    INTORRENT_STATE_CHECKING = 1,
+    INTORRENT_STATE_DOWNLOADING_METADATA = 2,
+    INTORRENT_STATE_DOWNLOADING = 3,
+    INTORRENT_STATE_FINISHED = 4,
+    INTORRENT_STATE_SEEDING = 5,
+    INTORRENT_STATE_UNKNOWN = 99,
+} IntorrentState;
+
+// Plain, fixed-width fields only - explicitly ordered largest-to-smallest
+// to avoid any implicit compiler padding ambiguity. This layout must
+// match lib/src/intorrent_bindings.dart's IntorrentStatus struct EXACTLY,
+// field for field, in the same order.
+typedef struct {
+    int64_t total_bytes;       // total size of the selected download, in bytes
+    int64_t downloaded_bytes;  // bytes downloaded so far
+    float progress;            // 0.0 - 1.0
+    int32_t state;             // one of IntorrentState
+    int32_t num_peers;
+    int32_t num_seeds;
+    int32_t is_paused;         // 0 = false, 1 = true (avoid native `bool` ABI differences)
+} IntorrentStatus;
+
+// Fills out_status with the current status of torrent `id`.
+// Returns 0 on success, -1 if `id` does not correspond to a known torrent.
+int32_t intorrent_get_status(int32_t id, IntorrentStatus* out_status);
+
 #ifdef __cplusplus
 }
 #endif
