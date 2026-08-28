@@ -16,6 +16,8 @@
 name: InTorrent CI
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
   workflow_dispatch:
 
@@ -67,6 +69,15 @@ jobs:
       # than hand-writing and committing that generated code ourselves.
       - name: Generate example app scaffold
         run: flutter create --platforms=android --org com.zsdev.intorrent example
+
+      # libtorrent's CMake unconditionally requires Boost (find_public_dependency(Boost REQUIRED)
+      # in its own CMakeLists.txt) - but only links Boost::headers, an interface
+      # (header-only) target. We don't need compiled Boost libraries, just the
+      # headers present somewhere findable, even while cross-compiling for
+      # Android (the NDK toolchain's CMAKE_FIND_ROOT_PATH_MODE_INCLUDE defaults
+      # to BOTH, so host-installed headers are visible to the search).
+      - name: Install Boost headers
+        run: sudo apt-get update && sudo apt-get install -y libboost-dev
 
       # Overlay our real pubspec.yaml (path dependency on InTorrent)
       # and main.dart (the smoke test) on top of the generated scaffold.
