@@ -242,3 +242,46 @@ extern "C" int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
 
     return 1;
 }
+
+extern "C" int32_t intorrent_pause(int32_t id) {
+    lt::torrent_handle handle;
+    if (!find_handle(id, handle) || !handle.is_valid()) {
+        return -1;
+    }
+    handle.pause();
+    return 0;
+}
+
+extern "C" int32_t intorrent_resume(int32_t id) {
+    lt::torrent_handle handle;
+    if (!find_handle(id, handle) || !handle.is_valid()) {
+        return -1;
+    }
+    handle.resume();
+    return 0;
+}
+
+extern "C" int32_t intorrent_remove(int32_t id) {
+    lt::torrent_handle handle;
+
+    // Both steps happen under the same lock scope as the erase, so
+    // there's no window where another call could look up an id that's
+    // mid-removal.
+    {
+        std::lock_guard<std::mutex> lock(g_handles_mutex);
+        auto it = g_handles.find(id);
+        if (it == g_handles.end()) {
+            return -1;
+        }
+        handle = it->second;
+        g_handles.erase(it); // erase FIRST - id is invalid from this
+                              // point on, even if remove_torrent below
+                              // is still in progress.
+    }
+
+    if (handle.is_valid()) {
+        get_session().remove_torrent(handle, lt::session_handle::delete_files);
+    }
+
+    return 0;
+}
