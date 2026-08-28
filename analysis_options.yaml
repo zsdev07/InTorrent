@@ -1,0 +1,15 @@
+# analysis_options.yaml - InTorrent
+#
+# PLACEMENT: repo root, alongside pubspec.yaml.
+#
+# Excludes ci/ from analysis - those files are a CI-only overlay
+# template (see .github/workflows/build.yml), not part of the actual
+# plugin, and its pubspec.yaml intentionally has a path dependency
+# that only resolves once it's copied into the generated example/
+# app during CI - not from its committed location.
+
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - ci/**
