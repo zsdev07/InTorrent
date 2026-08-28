@@ -83,6 +83,24 @@ int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
 int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
                                       int64_t start, int64_t length);
 
+// Pauses torrent `id`. Returns 0 on success, -1 if `id` is unknown.
+int32_t intorrent_pause(int32_t id);
+
+// Resumes a paused torrent `id`. Returns 0 on success, -1 if `id` is unknown.
+int32_t intorrent_resume(int32_t id);
+
+// Stops torrent `id`, removes it from the session, and deletes its
+// temporary downloaded files. This ALSO erases `id` from InTorrent's
+// internal id->handle map - after this call, `id` is no longer valid
+// for any other InTorrent function.
+//
+// Always call this when the user leaves a stream. Skipping it is
+// exactly the class of bug that motivated building InTorrent in the
+// first place - leftover handles that never get cleaned up.
+//
+// Returns 0 on success, -1 if `id` is unknown.
+int32_t intorrent_remove(int32_t id);
+
 #ifdef __cplusplus
 }
 #endif
