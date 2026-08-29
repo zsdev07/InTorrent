@@ -149,7 +149,7 @@ extern "C" int32_t intorrent_get_status(int32_t id, IntorrentStatus* out_status)
     out_status->state = translate_state(status.state);
     out_status->num_peers = status.num_peers;
     out_status->num_seeds = status.num_seeds;
-    out_status->is_paused = status.paused ? 1 : 0;
+    out_status->is_paused = (status.flags & lt::torrent_flags::paused) ? 1 : 0;
 
     return 0;
 }
@@ -173,10 +173,11 @@ extern "C" int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
         return -1;
     }
 
-    const lt::file_storage& files = info->files();
+    const lt::file_storage& files = info->layout();
     if (file_index < 0 || file_index >= files.num_files()) {
         return -1;
     }
+    const lt::file_index_t fidx{file_index};
 
     // Deprioritize every file, then set only the requested one to
     // top priority - we only want to spend bandwidth on what's
@@ -192,14 +193,14 @@ extern "C" int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
                       lt::torrent_flags::sequential_download);
 
     std::string save_path = handle.status().save_path;
-    std::string file_path = files.file_path(file_index, save_path);
+    std::string file_path = files.file_path(fidx, save_path);
 
     if (static_cast<int32_t>(file_path.size()) >= path_buf_len) {
         return -1; // caller's buffer too small
     }
 
     std::strncpy(out_path, file_path.c_str(), path_buf_len);
-    *out_size = files.file_size(file_index);
+    *out_size = files.file_size(fidx);
 
     return 0;
 }
@@ -216,16 +217,17 @@ extern "C" int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
         return -1;
     }
 
-    const lt::file_storage& files = info->files();
+    const lt::file_storage& files = info->layout();
     if (file_index < 0 || file_index >= files.num_files()) {
         return -1;
     }
+    const lt::file_index_t fidx{file_index};
 
     lt::torrent_status status = handle.status(lt::torrent_handle::query_pieces);
 
     // Convert the file-relative byte range into torrent-relative piece
     // indices, then check every piece in that range is marked downloaded.
-    const std::int64_t file_offset = files.file_offset(file_index);
+    const std::int64_t file_offset = files.file_offset(fidx);
     const std::int64_t piece_size = info->piece_length();
 
     const std::int64_t range_start = file_offset + start;
@@ -235,7 +237,8 @@ extern "C" int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
     const int last_piece = static_cast<int>((range_end - 1) / piece_size);
 
     for (int piece = first_piece; piece <= last_piece; ++piece) {
-        if (piece < 0 || piece >= status.pieces.size() || !status.pieces[piece]) {
+        const lt::piece_index_t pidx{piece};
+        if (piece < 0 || piece >= status.pieces.size() || !status.pieces[pidx]) {
             return 0; // at least one needed piece isn't downloaded yet
         }
     }
