@@ -61,6 +61,37 @@ set(TORRENT_USE_LIBCRYPTO OFF CACHE BOOL "" FORCE)
 # source of pain in the old plugin's build.
 set(webtorrent OFF CACHE BOOL "" FORCE)
 
+# --- Native-crash / build-size hardening (learned the hard way) --------
+#
+# TORRENT_USE_ASSERTS: ON by default whenever CMAKE_BUILD_TYPE=Debug.
+# These are internal libtorrent sanity checks, not meant for apps
+# embedding the library - one of them aborts the whole process
+# (SIGABRT) inside session_impl::on_tick() during normal pause/resume
+# use. This single flag was the root cause of every native crash we
+# chased on-device. Must be OFF unconditionally, not just in Release.
+set(TORRENT_USE_ASSERTS OFF CACHE BOOL "" FORCE)
+
+# We don't need any of these for InFlex's magnet-only streaming use
+# case - trimming them keeps the .so smaller and the attack/bug
+# surface down.
+set(i2p OFF CACHE BOOL "" FORCE)
+set(mutable-torrents OFF CACHE BOOL "" FORCE)
+set(deprecated-functions OFF CACHE BOOL "" FORCE)
+
+# --- Boost, vendored ----------------------------------------------------
+#
+# The Android NDK cross-compile toolchain restricts find_package()
+# searches to the NDK sysroot, so a host-installed Boost (e.g. via
+# apt-get on the CI runner) is invisible during the actual cross
+# compile even though it's present on the machine. Fix: vendor the
+# real Boost headers into the repo (native/third_party/boost_headers/)
+# and point CMake at them directly, bypassing find_package() search
+# entirely. See .github/workflows/vendor-boost.yml for how that
+# folder gets (re)generated.
+set(Boost_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/boost_headers" CACHE PATH "" FORCE)
+set(Boost_NO_SYSTEM_PATHS ON CACHE BOOL "" FORCE)
+set(Boost_FOUND TRUE CACHE BOOL "" FORCE)
+
 FetchContent_MakeAvailable(libtorrent)
 
 # --- InTorrent itself ---------------------------------------------------
