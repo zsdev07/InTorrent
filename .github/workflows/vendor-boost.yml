@@ -1,0 +1,62 @@
+# .github/workflows/vendor-boost.yml - InTorrent
+#
+# PURPOSE: one-time (or occasional) job to (re)generate
+# native/third_party/boost_headers/ and commit it to the repo.
+#
+# WHY THIS EXISTS: libtorrent's CMake unconditionally requires Boost
+# headers. Installing Boost via apt-get on every CI run *looks* like it
+# works (apt succeeds, no error) but the headers are invisible during
+# the actual Android NDK cross-compile step, because the NDK toolchain
+# restricts find_package() searches to the sysroot. Vendoring real
+# headers into the repo and pointing CMake at them directly (see
+# native/CMakeLists.txt) sidesteps find_package() entirely - this is
+# the fix, not a workaround.
+#
+# THIS IS MANUAL ON PURPOSE (workflow_dispatch only, no push trigger).
+# It commits back to the repo - if it ran on every push, that commit
+# would itself trigger another run, looping. Run it by hand from the
+# Actions tab whenever you need to (re)vendor, e.g. bumping the Boost
+# version.
+
+name: Vendor Boost headers
+
+on:
+  workflow_dispatch:
+    inputs:
+      boost_version:
+        description: 'Boost version to vendor (as available via apt, e.g. leave default for distro default)'
+        required: false
+        default: ''
+
+jobs:
+  vendor-boost:
+    name: Install Boost headers and commit them to the repo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Boost headers
+        run: sudo apt-get update && sudo apt-get install -y libboost-dev
+
+      # Only the headers matter - libtorrent links Boost::headers, an
+      # interface (header-only) target, never compiled Boost libraries.
+      - name: Vendor headers into the repo
+        run: |
+          rm -rf native/third_party/boost_headers
+          mkdir -p native/third_party/boost_headers
+          cp -r /usr/include/boost native/third_party/boost_headers/boost
+
+      - name: Record vendored version
+        run: |
+          dpkg -s libboost-dev | grep -i version > native/third_party/boost_headers/VERSION.txt
+
+      - name: Commit vendored headers
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add native/third_party/boost_headers
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore: vendor Boost headers ($(cat native/third_party/boost_headers/VERSION.txt))"
+          git push
