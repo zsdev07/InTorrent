@@ -63,13 +63,30 @@ set(webtorrent OFF CACHE BOOL "" FORCE)
 
 # --- Native-crash / build-size hardening (learned the hard way) --------
 #
-# TORRENT_USE_ASSERTS: ON by default whenever CMAKE_BUILD_TYPE=Debug.
-# These are internal libtorrent sanity checks, not meant for apps
-# embedding the library - one of them aborts the whole process
-# (SIGABRT) inside session_impl::on_tick() during normal pause/resume
-# use. This single flag was the root cause of every native crash we
-# chased on-device. Must be OFF unconditionally, not just in Release.
-set(TORRENT_USE_ASSERTS OFF CACHE BOOL "" FORCE)
+# First attempt at this fix was WRONG - we set a cache variable named
+# TORRENT_USE_ASSERTS, but libtorrent's own CMakeLists never reads that
+# name. The real option it defines is `asserts` (string: auto/on/off/
+# production/system, see libtorrent's CMakeLists.txt around
+# `set(asserts "auto" CACHE STRING ...)`).
+#
+# It's not enough on its own either: libtorrent's CMakeLists also has
+# a generator expression - $<$<CONFIG:Debug>:TORRENT_USE_ASSERTS> -
+# that injects the assert macro unconditionally whenever
+# CMAKE_BUILD_TYPE is Debug, regardless of the `asserts` option above.
+# `flutter build apk --debug` builds native code as Debug by default,
+# so that expression was silently re-enabling asserts no matter what
+# we set `asserts` to. This is what actually caused the repeated
+# SIGABRT inside session_impl::on_tick() during pause/resume.
+#
+# Since this plugin ships once and isn't revisited afterward, there's
+# no reason to ever want libtorrent's internal debug asserts on - so
+# we force libtorrent's own build type to Release unconditionally,
+# independent of whatever debug/release flavor Flutter's outer build
+# is using. Only libtorrent's config is forced; InTorrent's own
+# `intorrent` target below is unaffected and still follows whatever
+# CMAKE_BUILD_TYPE the outer Flutter/Gradle build passes in.
+set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
+set(asserts "off" CACHE STRING "" FORCE)
 
 # We don't need any of these for InFlex's magnet-only streaming use
 # case - trimming them keeps the .so smaller and the attack/bug
