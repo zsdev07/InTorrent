@@ -42,6 +42,11 @@ std::unique_ptr<lt::session> g_session;
 // for why that's Android-problematic) if never called.
 std::string g_listen_interfaces = "0.0.0.0:6881,[::]:6881";
 
+// Set via intorrent_init() before the first addMagnet(). Falls back
+// to the broken "." placeholder (resolves to an unwritable directory
+// on Android - see intorrent_init's doc comment) if never called.
+std::string g_save_path = ".";
+
 // ---- Alert pump ---------------------------------------------------------
 //
 // We were flying blind: alert_mask only asked for status|error, so
@@ -131,10 +136,7 @@ std::atomic<int32_t> g_next_id{1};
 
 } // namespace
 
-extern "C" void intorrent_init(const char* listen_interfaces) {
-    if (listen_interfaces == nullptr) {
-        return;
-    }
+extern "C" void intorrent_init(const char* listen_interfaces, const char* save_path) {
     std::lock_guard<std::mutex> lock(g_session_mutex);
     if (g_session) {
         // Session already exists (e.g. addMagnet was called first) -
@@ -143,7 +145,12 @@ extern "C" void intorrent_init(const char* listen_interfaces) {
         // required to call this before every possible entry point.
         return;
     }
-    g_listen_interfaces = listen_interfaces;
+    if (listen_interfaces != nullptr) {
+        g_listen_interfaces = listen_interfaces;
+    }
+    if (save_path != nullptr) {
+        g_save_path = save_path;
+    }
 }
 
 extern "C" int32_t intorrent_add_magnet(const char* uri) {
@@ -163,9 +170,12 @@ extern "C" int32_t intorrent_add_magnet(const char* uri) {
     // Sequential-order piece priority is set later, in streamUrl() -
     // addMagnet's only job is to register the torrent and hand back
     // a stable id.
-    params.save_path = "."; // overridden properly once storage/download
-                             // path handling is designed - placeholder
-                             // for now so add_torrent() has a valid path.
+    //
+    // g_save_path defaults to "." (broken on Android - resolves to
+    // an unwritable directory) unless intorrent_init() was called
+    // first with a real, writable directory. See intorrent_init's
+    // doc comment in intorrent.h.
+    params.save_path = g_save_path;
 
     lt::torrent_handle handle = get_session().add_torrent(std::move(params), ec);
     if (ec || !handle.is_valid()) {
