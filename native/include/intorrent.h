@@ -14,6 +14,28 @@
 extern "C" {
 #endif
 
+// Tells the (not-yet-created) global session which local address to
+// bind its listen socket to, e.g. "192.168.1.42:6881". Optional -
+// call this once, before the first intorrent_add_magnet(), if you
+// have a concrete local IP available.
+//
+// WHY THIS EXISTS: libtorrent's default "0.0.0.0"/"[::]" wildcard
+// listen address isn't bound directly - libtorrent expands it into
+// one bind() per real local interface, which means enumerating
+// interfaces via a netlink route socket. Android's SELinux policy
+// denies untrusted apps that syscall outright (bind() -> EACCES),
+// so the wildcard form silently ends up with zero listen sockets
+// and the whole session auto-pauses. A concrete address (obtained
+// Dart-side via dart:io's NetworkInterface.list(), which uses
+// getifaddrs() - a different, unrestricted syscall path) needs no
+// expansion, so this sidesteps the blocked call entirely.
+//
+// If this is never called, intorrent_add_magnet() falls back to the
+// wildcard form on first use (matches pre-existing behavior - still
+// subject to the Android limitation above, but harmless to call
+// without this on other platforms where it isn't an issue).
+void intorrent_init(const char* listen_interfaces);
+
 // Adds a magnet link to the (lazily-created) global session.
 //
 // uri: a null-terminated magnet URI string, owned by the caller.
