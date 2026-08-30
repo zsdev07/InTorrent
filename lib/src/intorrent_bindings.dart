@@ -48,6 +48,27 @@ typedef IntorrentInitDart = void Function(
 typedef IntorrentAddMagnetNative = Int32 Function(Pointer<Utf8> uri);
 typedef IntorrentAddMagnetDart = int Function(Pointer<Utf8> uri);
 
+/// Native signature: int32_t intorrent_get_file_count(int32_t id);
+typedef IntorrentGetFileCountNative = Int32 Function(Int32 id);
+typedef IntorrentGetFileCountDart = int Function(int id);
+
+/// Native signature:
+/// int32_t intorrent_get_file_info(int32_t id, int32_t file_index,
+///                                  char* out_name, int32_t name_buf_len,
+///                                  int64_t* out_size);
+typedef IntorrentGetFileInfoNative = Int32 Function(
+    Int32 id,
+    Int32 fileIndex,
+    Pointer<Utf8> outName,
+    Int32 nameBufLen,
+    Pointer<Int64> outSize);
+typedef IntorrentGetFileInfoDart = int Function(
+    int id,
+    int fileIndex,
+    Pointer<Utf8> outName,
+    int nameBufLen,
+    Pointer<Int64> outSize);
+
 /// Native signature:
 /// int32_t intorrent_get_status(int32_t id, IntorrentStatus* out_status);
 typedef IntorrentGetStatusNative = Int32 Function(
@@ -100,6 +121,12 @@ class IntorrentBindings {
     addMagnet = _lib
         .lookup<NativeFunction<IntorrentAddMagnetNative>>('intorrent_add_magnet')
         .asFunction<IntorrentAddMagnetDart>();
+    getFileCount = _lib
+        .lookup<NativeFunction<IntorrentGetFileCountNative>>('intorrent_get_file_count')
+        .asFunction<IntorrentGetFileCountDart>();
+    getFileInfo = _lib
+        .lookup<NativeFunction<IntorrentGetFileInfoNative>>('intorrent_get_file_info')
+        .asFunction<IntorrentGetFileInfoDart>();
     getStatus = _lib
         .lookup<NativeFunction<IntorrentGetStatusNative>>('intorrent_get_status')
         .asFunction<IntorrentGetStatusDart>();
@@ -123,6 +150,8 @@ class IntorrentBindings {
   final DynamicLibrary _lib;
   late final IntorrentInitDart init;
   late final IntorrentAddMagnetDart addMagnet;
+  late final IntorrentGetFileCountDart getFileCount;
+  late final IntorrentGetFileInfoDart getFileInfo;
   late final IntorrentGetStatusDart getStatus;
   late final IntorrentPrepareStreamDart prepareStream;
   late final IntorrentIsRangeAvailableDart isRangeAvailable;
