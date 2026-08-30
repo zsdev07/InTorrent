@@ -253,6 +253,56 @@ extern "C" int32_t intorrent_get_status(int32_t id, IntorrentStatus* out_status)
     return 0;
 }
 
+extern "C" int32_t intorrent_get_file_count(int32_t id) {
+    lt::torrent_handle handle;
+    if (!find_handle(id, handle) || !handle.is_valid()) {
+        return -1;
+    }
+    std::shared_ptr<const lt::torrent_info> info = handle.torrent_file();
+    if (!info) {
+        // Metadata hasn't arrived yet - same "not ready" contract as
+        // intorrent_prepare_stream.
+        return -1;
+    }
+    return info->layout().num_files();
+}
+
+extern "C" int32_t intorrent_get_file_info(int32_t id, int32_t file_index,
+                                            char* out_name, int32_t name_buf_len,
+                                            int64_t* out_size) {
+    if (out_name == nullptr || out_size == nullptr) {
+        return -1;
+    }
+    lt::torrent_handle handle;
+    if (!find_handle(id, handle) || !handle.is_valid()) {
+        return -1;
+    }
+    std::shared_ptr<const lt::torrent_info> info = handle.torrent_file();
+    if (!info) {
+        return -1;
+    }
+    const lt::file_storage& files = info->layout();
+    if (file_index < 0 || file_index >= files.num_files()) {
+        return -1;
+    }
+    const lt::file_index_t fidx{file_index};
+
+    // file_name() returns just the leaf filename (no directory
+    // components) - exactly what a caller picking "which file is the
+    // video" wants, as opposed to file_path() (used by
+    // intorrent_prepare_stream) which includes the on-disk save path.
+    std::string name = std::string(files.file_name(fidx));
+
+    if (static_cast<int32_t>(name.size()) >= name_buf_len) {
+        return -1; // caller's buffer too small
+    }
+
+    std::strncpy(out_name, name.c_str(), name_buf_len);
+    *out_size = files.file_size(fidx);
+
+    return 0;
+}
+
 extern "C" int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
                                              char* out_path, int32_t path_buf_len,
                                              int64_t* out_size) {
