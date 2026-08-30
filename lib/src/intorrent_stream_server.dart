@@ -81,7 +81,13 @@ class IntorrentStreamServer {
 
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     _server = server;
-    server.listen(_handleRequest, onError: (_) {});
+    server.listen(_handleRequest, onError: (e, st) {
+      // Was previously swallowed silently - a server-level error here
+      // (vs. a per-request one, already handled inside _handleRequest)
+      // would have been invisible in every log we've pulled so far.
+      // ignore: avoid_print
+      print('[IntorrentStreamServer] server error: $e');
+    });
     return server;
   }
 
@@ -107,6 +113,11 @@ class IntorrentStreamServer {
 
   Future<void> _handleRequest(HttpRequest request) async {
     final segments = request.uri.pathSegments;
+
+    // ignore: avoid_print
+    print('[IntorrentStreamServer] ${request.method} ${request.uri.path} '
+        'range=${request.headers.value(HttpHeaders.rangeHeader)}');
+
     if (segments.length != 2 || segments[0] != 'stream') {
       request.response.statusCode = HttpStatus.notFound;
       await request.response.close();
@@ -139,6 +150,33 @@ class IntorrentStreamServer {
     }
 
     final length = end - start + 1;
+
+    // HEAD - real media players (mpv/libmpv, VLC) commonly send this
+    // FIRST to discover Content-Length/Accept-Ranges/Content-Type
+    // before deciding how to request the actual body. Answer
+    // immediately with just the headers a GET for this same range
+    // would return - no waiting on range availability (a HEAD isn't
+    // asking for any bytes yet) and no body written. Skipping this
+    // case entirely (as this used to) meant a HEAD either hung for up
+    // to rangeWaitTimeout waiting on the WHOLE file to be "available",
+    // or got a body it never asked for - either one is a protocol
+    // violation strict HTTP clients reasonably abort on, which matches
+    // "Failed to open" happening near-instantly rather than after any
+    // real wait.
+    if (request.method == 'HEAD') {
+      request.response.statusCode =
+          isPartial ? HttpStatus.partialContent : HttpStatus.ok;
+      request.response.headers
+        ..set(HttpHeaders.acceptRangesHeader, 'bytes')
+        ..set(HttpHeaders.contentLengthHeader, length)
+        ..contentType = ContentType('video', 'mp4');
+      if (isPartial) {
+        request.response.headers.set(
+            HttpHeaders.contentRangeHeader, 'bytes $start-$end/${entry.totalSize}');
+      }
+      await request.response.close();
+      return;
+    }
 
     // Wait until the native side confirms these bytes have actually
     // been downloaded - do NOT trust the file's on-disk size.
