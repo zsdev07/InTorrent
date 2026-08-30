@@ -68,7 +68,7 @@ lt::session& get_session() {
         // here since this is still an active debugging phase; can be
         // narrowed once streaming is confirmed working end-to-end.
         settings.set_int(lt::settings_pack::alert_mask,
-                          lt::alert_category::all_categories);
+                          lt::alert::all_categories);
 
         // Android's SELinux policy denies untrusted apps direct netlink
         // route-socket access (bind() -> EACCES), which is exactly what
