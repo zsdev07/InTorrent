@@ -21,6 +21,7 @@
 #include <atomic>
 #include <cstring>
 #include <thread>
+#include <string>
 
 #include <android/log.h>
 #define INTORRENT_ALERT_TAG "InTorrentAlert"
@@ -35,6 +36,11 @@ namespace {
 
 std::mutex g_session_mutex;
 std::unique_ptr<lt::session> g_session;
+
+// Set via intorrent_init() before the session exists. Falls back to
+// the wildcard form (see intorrent_init's doc comment in intorrent.h
+// for why that's Android-problematic) if never called.
+std::string g_listen_interfaces = "0.0.0.0:6881,[::]:6881";
 
 // ---- Alert pump ---------------------------------------------------------
 //
@@ -83,7 +89,7 @@ lt::session& get_session() {
         // all interfaces (both v4 and v6) ourselves, so libtorrent never
         // needs to touch netlink to figure that out.
         settings.set_str(lt::settings_pack::listen_interfaces,
-                          "0.0.0.0:6881,[::]:6881");
+                          g_listen_interfaces);
 
         g_session = std::make_unique<lt::session>(settings);
 
@@ -107,6 +113,21 @@ std::unordered_map<int32_t, lt::torrent_handle> g_handles;
 std::atomic<int32_t> g_next_id{1};
 
 } // namespace
+
+extern "C" void intorrent_init(const char* listen_interfaces) {
+    if (listen_interfaces == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(g_session_mutex);
+    if (g_session) {
+        // Session already exists (e.g. addMagnet was called first) -
+        // too late for this to take effect, same as if it were never
+        // called at all. Not treated as an error since callers aren't
+        // required to call this before every possible entry point.
+        return;
+    }
+    g_listen_interfaces = listen_interfaces;
+}
 
 extern "C" int32_t intorrent_add_magnet(const char* uri) {
     if (uri == nullptr) {
