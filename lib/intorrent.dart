@@ -191,6 +191,68 @@ Future<TorrentStatus> getStatus(int id) async {
   }
 }
 
+/// One file inside a torrent - returned by [listFiles].
+class TorrentFile {
+  const TorrentFile({
+    required this.index,
+    required this.name,
+    required this.size,
+  });
+
+  /// Pass this straight to [streamUrl].
+  final int index;
+
+  /// Just the filename (e.g. "movie.mkv") - not the full save path.
+  final String name;
+
+  /// Size in bytes.
+  final int size;
+}
+
+/// Lists every file inside torrent [id] - call this once metadata has
+/// arrived (check [getStatus]; wait until state is no longer
+/// [TorrentState.downloadingMetadata]) to decide which [TorrentFile.index]
+/// to hand to [streamUrl]. Torrents often bundle subtitles/NFO/sample
+/// files alongside the actual video, so index 0 is not a safe default -
+/// a reasonable heuristic is picking the largest file, or the largest
+/// file with a known video extension.
+///
+/// Throws a [StateError] if [id] is invalid or metadata hasn't arrived
+/// yet.
+Future<List<TorrentFile>> listFiles(int id) async {
+  final bindings = IntorrentBindings();
+
+  final count = bindings.getFileCount(id);
+  if (count < 0) {
+    throw StateError(
+        'InTorrent: could not list files for id $id (bad id, or metadata '
+        'not yet available)');
+  }
+
+  const nameBufferSize = 1024;
+  final namePtr = calloc<Uint8>(nameBufferSize).cast<Utf8>();
+  final sizePtr = calloc<Int64>();
+
+  try {
+    final files = <TorrentFile>[];
+    for (var i = 0; i < count; i++) {
+      final result = bindings.getFileInfo(id, i, namePtr, nameBufferSize, sizePtr);
+      if (result != 0) {
+        throw StateError('InTorrent: could not get file info for id $id, file $i');
+      }
+      files.add(TorrentFile(
+        index: i,
+        name: namePtr.toDartString(),
+        size: sizePtr.value,
+      ));
+    }
+    return files;
+  } finally {
+    calloc.free(namePtr);
+    calloc.free(sizePtr);
+  }
+}
+
 /// Begins sequential (playback-order) downloading of file [fileIndex]
 /// inside torrent [id], and returns a local URL your video player can
 /// stream directly from.
