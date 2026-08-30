@@ -15,26 +15,32 @@ extern "C" {
 #endif
 
 // Tells the (not-yet-created) global session which local address to
-// bind its listen socket to, e.g. "192.168.1.42:6881". Optional -
-// call this once, before the first intorrent_add_magnet(), if you
-// have a concrete local IP available.
+// bind its listen socket to (e.g. "192.168.1.42:6881") and which
+// directory to save downloaded pieces into. Optional - call this
+// once, before the first intorrent_add_magnet(), if you have both
+// values available.
 //
-// WHY THIS EXISTS: libtorrent's default "0.0.0.0"/"[::]" wildcard
-// listen address isn't bound directly - libtorrent expands it into
-// one bind() per real local interface, which means enumerating
-// interfaces via a netlink route socket. Android's SELinux policy
-// denies untrusted apps that syscall outright (bind() -> EACCES),
-// so the wildcard form silently ends up with zero listen sockets
-// and the whole session auto-pauses. A concrete address (obtained
-// Dart-side via dart:io's NetworkInterface.list(), which uses
-// getifaddrs() - a different, unrestricted syscall path) needs no
-// expansion, so this sidesteps the blocked call entirely.
+// listen_interfaces: a concrete IP avoids Android's SELinux netlink
+// restriction for interface auto-detection. Kept as a minor belt-
+// and-braces improvement - the actual session-killing bug on Android
+// turned out to be libtorrent's separate enable_ip_notifier feature
+// (its own, unrelated netlink call for network-change detection),
+// fixed directly in get_session() below, not by this parameter.
 //
-// If this is never called, intorrent_add_magnet() falls back to the
-// wildcard form on first use (matches pre-existing behavior - still
-// subject to the Android limitation above, but harmless to call
-// without this on other platforms where it isn't an issue).
-void intorrent_init(const char* listen_interfaces);
+// save_path: a real, writable directory for downloaded piece data.
+// WHY THIS EXISTS: addMagnet() used to fall back to save_path "."
+// (an unfinished placeholder), which on Android resolves to the
+// process's working directory - the filesystem root, which regular
+// apps cannot write into at all. Every downloaded piece silently had
+// nowhere legal to go. Pass a real directory (Dart-side, e.g.
+// Directory.systemTemp.path - matches InTorrent's streaming-only,
+// no-persistent-download design) to fix that.
+//
+// If this is never called, intorrent_add_magnet() falls back to "."
+// for save_path (broken on Android, matches old behavior) and the
+// wildcard form for listen_interfaces (see intorrent_init's old doc
+// comment - same Android limitation as before).
+void intorrent_init(const char* listen_interfaces, const char* save_path);
 
 // Adds a magnet link to the (lazily-created) global session.
 //
