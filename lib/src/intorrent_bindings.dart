@@ -38,9 +38,11 @@ final class IntorrentStatusNative extends Struct {
   external int isPaused;
 }
 
-/// Native signature: void intorrent_init(const char* listen_interfaces);
-typedef IntorrentInitNative = Void Function(Pointer<Utf8> listenInterfaces);
-typedef IntorrentInitDart = void Function(Pointer<Utf8> listenInterfaces);
+/// Native signature: void intorrent_init(const char* listen_interfaces, const char* save_path);
+typedef IntorrentInitNative = Void Function(
+    Pointer<Utf8> listenInterfaces, Pointer<Utf8> savePath);
+typedef IntorrentInitDart = void Function(
+    Pointer<Utf8> listenInterfaces, Pointer<Utf8> savePath);
 
 /// Native signature: int32_t intorrent_add_magnet(const char* uri);
 typedef IntorrentAddMagnetNative = Int32 Function(Pointer<Utf8> uri);
