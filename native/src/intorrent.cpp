@@ -91,6 +91,23 @@ lt::session& get_session() {
         settings.set_str(lt::settings_pack::listen_interfaces,
                           g_listen_interfaces);
 
+        // libtorrent's optional network-change auto-detection
+        // (enable_ip_notifier, ON by default) opens its own netlink
+        // socket purely to notice WiFi/mobile handovers - completely
+        // separate from the actual torrent listen socket above. That
+        // netlink call is the SAME kind Android's SELinux denies to
+        // regular apps, and libtorrent's generic exception wrapper
+        // (session_impl::wrap()) treats ANY exception from it as fatal
+        // and calls pause() - aborting every tracker announce and
+        // pausing every torrent in the whole session. This is what was
+        // actually behind every "bind: Permission denied" session error
+        // we saw, regardless of whether listen_interfaces was a
+        // wildcard or a concrete address - this feature is unrelated
+        // to that setting and was failing (and taking the session down
+        // with it) either way. We don't need auto re-listen-on-network-
+        // change for this use case, so just turn it off.
+        settings.set_bool(lt::settings_pack::enable_ip_notifier, false);
+
         g_session = std::make_unique<lt::session>(settings);
 
         // Detached on purpose - it's meant to run for the whole process
