@@ -95,22 +95,26 @@ Future<int> addMagnet(String uri) async {
 bool _sessionInitAttempted = false;
 
 /// Runs once, before the first addMagnet() call, so the native session
-/// gets created with a concrete local IP instead of the "0.0.0.0"/"[::]"
-/// wildcard.
+/// gets created with a concrete local IP and a real writable save
+/// directory, instead of native's broken Android defaults.
 ///
-/// WHY: libtorrent expands a wildcard listen address into one bind()
-/// per real local interface, which means enumerating interfaces via a
-/// netlink route socket - a syscall Android's SELinux policy denies to
-/// regular apps outright. That leaves libtorrent with zero listen
-/// sockets and it auto-pauses the whole session, so nothing ever
-/// connects to peers/trackers/DHT no matter how long you wait.
-/// NetworkInterface.list() sidesteps this entirely - it resolves to
-/// getifaddrs(), a different (and unrestricted) syscall path.
+/// WHY (listen address): a concrete IP avoids Android's SELinux netlink
+/// restriction for one specific case (see intorrent_init's doc comment
+/// in intorrent.h for the fuller picture - the actual session-killing
+/// bug turned out to be libtorrent's separate enable_ip_notifier
+/// feature, fixed natively, not here). Kept as a minor belt-and-braces
+/// improvement since it's harmless either way.
 ///
-/// Best-effort: if this can't find a usable address for any reason
-/// (emulator quirks, no network yet, non-Android platform), native
-/// falls back to the wildcard form on its own - same behavior as
-/// before this existed, just without the Android fix applied.
+/// WHY (save path): addMagnet() used to leave save_path as an
+/// unfinished "." placeholder, which resolves to an unwritable
+/// directory on Android (the filesystem root) - every downloaded piece
+/// silently had nowhere legal to go. Directory.systemTemp gives a real,
+/// writable directory that also matches InTorrent's actual design
+/// (streaming only, no persistent downloads).
+///
+/// Best-effort throughout: if either value can't be determined for any
+/// reason, native falls back to its own (Android-broken) defaults for
+/// just that value - same as before this existed.
 Future<void> _ensureSessionInitialized() async {
   if (_sessionInitAttempted) return;
   _sessionInitAttempted = true;
@@ -122,24 +126,39 @@ Future<void> _ensureSessionInitialized() async {
       includeLinkLocal: false,
     );
 
+    String? listenInterfaces;
     for (final iface in interfaces) {
       for (final addr in iface.addresses) {
         // First real, non-loopback IPv4 address we find - typically
         // WiFi (wlan0) or mobile data, either is fine for libtorrent's
         // purposes here.
-        final listenInterfaces = '${addr.address}:6881';
-        final ptr = listenInterfaces.toNativeUtf8();
-        try {
-          IntorrentBindings().init(ptr);
-        } finally {
-          calloc.free(ptr);
-        }
-        return;
+        listenInterfaces = '${addr.address}:6881';
+        break;
       }
+      if (listenInterfaces != null) break;
     }
-    // No usable address found - leave it to native's wildcard fallback.
+
+    // A real, writable directory for downloaded piece data - was
+    // previously left as an unfinished "." placeholder, which
+    // resolves to an unwritable directory on Android (the filesystem
+    // root) and silently meant every downloaded piece had nowhere
+    // legal to go. systemTemp matches InTorrent's actual design -
+    // streaming only, no persistent downloads, temp files cleaned up
+    // on remove() - so it needs no new dependency (path_provider)
+    // beyond what dart:io already gives us.
+    final savePath = Directory.systemTemp.path;
+
+    final listenPtr = listenInterfaces?.toNativeUtf8() ?? nullptr;
+    final savePathPtr = savePath.toNativeUtf8();
+    try {
+      IntorrentBindings().init(listenPtr, savePathPtr);
+    } finally {
+      if (listenPtr != nullptr) calloc.free(listenPtr);
+      calloc.free(savePathPtr);
+    }
   } catch (_) {
-    // Best-effort - same fallback as above.
+    // Best-effort - native falls back to its own (Android-broken)
+    // defaults for whichever of these couldn't be determined.
   }
 }
 
