@@ -125,6 +125,15 @@ target_link_libraries(intorrent PRIVATE
     torrent-rasterbar
 )
 
+# Android's NDK C library doesn't route logcat through stdout/stderr -
+# __android_log_print() (used by the alert pump in intorrent.cpp) lives
+# in liblog, so it has to be linked explicitly or that symbol fails at
+# link time.
+if(ANDROID)
+    find_library(log-lib log)
+    target_link_libraries(intorrent PRIVATE ${log-lib})
+endif()
+
 # Ensures the output is named libintorrent.so on Android/Linux,
 # intorrent.dll on Windows - matching what intorrent_bindings.dart
 # expects in DynamicLibrary.open().
