@@ -4,6 +4,7 @@
 // InTorrent) should ever import from.
 
 import 'dart:ffi';
+import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'src/intorrent_bindings.dart';
 import 'src/intorrent_stream_server.dart';
@@ -75,6 +76,8 @@ class TorrentStatus {
 ///
 /// Throws a [FormatException] if the magnet URI could not be parsed.
 Future<int> addMagnet(String uri) async {
+  await _ensureSessionInitialized();
+
   final bindings = IntorrentBindings();
   final uriPtr = uri.toNativeUtf8();
 
@@ -86,6 +89,57 @@ Future<int> addMagnet(String uri) async {
     return id;
   } finally {
     calloc.free(uriPtr);
+  }
+}
+
+bool _sessionInitAttempted = false;
+
+/// Runs once, before the first addMagnet() call, so the native session
+/// gets created with a concrete local IP instead of the "0.0.0.0"/"[::]"
+/// wildcard.
+///
+/// WHY: libtorrent expands a wildcard listen address into one bind()
+/// per real local interface, which means enumerating interfaces via a
+/// netlink route socket - a syscall Android's SELinux policy denies to
+/// regular apps outright. That leaves libtorrent with zero listen
+/// sockets and it auto-pauses the whole session, so nothing ever
+/// connects to peers/trackers/DHT no matter how long you wait.
+/// NetworkInterface.list() sidesteps this entirely - it resolves to
+/// getifaddrs(), a different (and unrestricted) syscall path.
+///
+/// Best-effort: if this can't find a usable address for any reason
+/// (emulator quirks, no network yet, non-Android platform), native
+/// falls back to the wildcard form on its own - same behavior as
+/// before this existed, just without the Android fix applied.
+Future<void> _ensureSessionInitialized() async {
+  if (_sessionInitAttempted) return;
+  _sessionInitAttempted = true;
+
+  try {
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLoopback: false,
+      includeLinkLocal: false,
+    );
+
+    for (final iface in interfaces) {
+      for (final addr in iface.addresses) {
+        // First real, non-loopback IPv4 address we find - typically
+        // WiFi (wlan0) or mobile data, either is fine for libtorrent's
+        // purposes here.
+        final listenInterfaces = '${addr.address}:6881';
+        final ptr = listenInterfaces.toNativeUtf8();
+        try {
+          IntorrentBindings().init(ptr);
+        } finally {
+          calloc.free(ptr);
+        }
+        return;
+      }
+    }
+    // No usable address found - leave it to native's wildcard fallback.
+  } catch (_) {
+    // Best-effort - same fallback as above.
   }
 }
 
