@@ -38,6 +38,10 @@ final class IntorrentStatusNative extends Struct {
   external int isPaused;
 }
 
+/// Native signature: void intorrent_init(const char* listen_interfaces);
+typedef IntorrentInitNative = Void Function(Pointer<Utf8> listenInterfaces);
+typedef IntorrentInitDart = void Function(Pointer<Utf8> listenInterfaces);
+
 /// Native signature: int32_t intorrent_add_magnet(const char* uri);
 typedef IntorrentAddMagnetNative = Int32 Function(Pointer<Utf8> uri);
 typedef IntorrentAddMagnetDart = int Function(Pointer<Utf8> uri);
@@ -88,6 +92,9 @@ typedef IntorrentRemoveDart = int Function(int id);
 
 class IntorrentBindings {
   IntorrentBindings._(this._lib) {
+    init = _lib
+        .lookup<NativeFunction<IntorrentInitNative>>('intorrent_init')
+        .asFunction<IntorrentInitDart>();
     addMagnet = _lib
         .lookup<NativeFunction<IntorrentAddMagnetNative>>('intorrent_add_magnet')
         .asFunction<IntorrentAddMagnetDart>();
@@ -112,6 +119,7 @@ class IntorrentBindings {
   }
 
   final DynamicLibrary _lib;
+  late final IntorrentInitDart init;
   late final IntorrentAddMagnetDart addMagnet;
   late final IntorrentGetStatusDart getStatus;
   late final IntorrentPrepareStreamDart prepareStream;
