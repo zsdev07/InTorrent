@@ -71,15 +71,30 @@ class _SmokeTestPageState extends State<SmokeTestPage> {
     }
   }
 
+  Future<void> _runListFiles() async {
+    if (_currentId == null) {
+      _appendLog('Call addMagnet first.');
+      return;
+    }
+    try {
+      final files = await intorrent.listFiles(_currentId!);
+      _appendLog('listFiles() -> ${files.length} file(s):');
+      for (final f in files) {
+        _appendLog('  [${f.index}] ${f.name} (${f.size} bytes)');
+      }
+    } catch (e) {
+      _appendLog('listFiles() failed: $e');
+    }
+  }
+
   Future<void> _runStreamUrl() async {
     if (_currentId == null) {
       _appendLog('Call addMagnet first.');
       return;
     }
     try {
-      // fileIndex 0 - fine for a smoke test against a single-file
-      // torrent. A real app would let the user pick from the torrent's
-      // file list.
+      // fileIndex 0 - fine for a single-file torrent (tap listFiles
+      // first on a multi-file one to find the right index).
       final url = await intorrent.streamUrl(_currentId!, 0);
       _streamUri = url;
       _appendLog('streamUrl() -> $url');
@@ -141,6 +156,7 @@ class _SmokeTestPageState extends State<SmokeTestPage> {
               children: [
                 ElevatedButton(onPressed: _runAddMagnet, child: const Text('addMagnet')),
                 ElevatedButton(onPressed: _runGetStatus, child: const Text('getStatus')),
+                ElevatedButton(onPressed: _runListFiles, child: const Text('listFiles')),
                 ElevatedButton(onPressed: _runStreamUrl, child: const Text('streamUrl')),
                 ElevatedButton(onPressed: _runPause, child: const Text('pause')),
                 ElevatedButton(onPressed: _runResume, child: const Text('resume')),
