@@ -83,6 +83,31 @@ typedef struct {
 // Returns 0 on success, -1 if `id` does not correspond to a known torrent.
 int32_t intorrent_get_status(int32_t id, IntorrentStatus* out_status);
 
+// Returns the number of files in torrent `id`'s metadata, or -1 if
+// `id` is unknown OR metadata hasn't arrived yet (same "not ready"
+// signal as intorrent_prepare_stream - check status.state via
+// intorrent_get_status() first; INTORRENT_STATE_DOWNLOADING_METADATA
+// means this will still return -1).
+//
+// Call this once metadata is in, BEFORE intorrent_prepare_stream(),
+// to find out which file_index is actually the video - torrents
+// often bundle subtitles/NFO/sample files alongside it, so index 0
+// is not a safe default.
+int32_t intorrent_get_file_count(int32_t id);
+
+// Fills out_name and out_size with file `file_index`'s name (just the
+// filename, not the full save-path) and size in bytes.
+//
+// out_name: caller-allocated buffer for the null-terminated filename.
+// name_buf_len: size of out_name, in bytes.
+// out_size: receives the file's total size in bytes.
+//
+// Returns 0 on success, -1 on failure (bad id, metadata not ready,
+// file_index out of range, or out_name too small).
+int32_t intorrent_get_file_info(int32_t id, int32_t file_index,
+                                 char* out_name, int32_t name_buf_len,
+                                 int64_t* out_size);
+
 // Prepares torrent `id` for streaming file `file_index` inside it:
 // sets sequential (playback-order) piece downloading and deprioritizes
 // every other file in the torrent.
