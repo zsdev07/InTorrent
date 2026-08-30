@@ -13,12 +13,17 @@
 #include <libtorrent/error_code.hpp>
 #include <libtorrent/torrent_info.hpp>
 #include <libtorrent/torrent_flags.hpp>
+#include <libtorrent/alert_types.hpp>
 
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <atomic>
 #include <cstring>
+#include <thread>
+
+#include <android/log.h>
+#define INTORRENT_ALERT_TAG "InTorrentAlert"
 
 namespace {
 
@@ -31,13 +36,39 @@ namespace {
 std::mutex g_session_mutex;
 std::unique_ptr<lt::session> g_session;
 
+// ---- Alert pump ---------------------------------------------------------
+//
+// We were flying blind: alert_mask only asked for status|error, so
+// libtorrent silently dropped every dht_*, tracker_*, listen_failed_*,
+// and port_map_* alert - exactly the ones that explain WHY peers/seeds
+// stay at 0. This thread drains whatever alerts we do ask for and logs
+// each one's own message() to logcat, so a `logcat -s InTorrentAlert`
+// filter shows plainly what libtorrent is doing (or failing to do),
+// instead of us inferring it secondhand from Android's audit log.
+void alert_pump_loop(lt::session* session) {
+    for (;;) {
+        session->wait_for_alert(std::chrono::seconds(30));
+        std::vector<lt::alert*> alerts;
+        session->pop_alerts(&alerts);
+        for (lt::alert* a : alerts) {
+            __android_log_print(ANDROID_LOG_DEBUG, INTORRENT_ALERT_TAG,
+                                 "%s", a->message().c_str());
+        }
+    }
+}
+
 lt::session& get_session() {
     std::lock_guard<std::mutex> lock(g_session_mutex);
     if (!g_session) {
         lt::settings_pack settings;
+
+        // Was just status|error - blind to exactly the alert types
+        // (dht, tracker, port_mapping, incoming_request) that explain
+        // stalled peer discovery. all_categories is deliberately broad
+        // here since this is still an active debugging phase; can be
+        // narrowed once streaming is confirmed working end-to-end.
         settings.set_int(lt::settings_pack::alert_mask,
-                          lt::alert_category::status |
-                          lt::alert_category::error);
+                          lt::alert_category::all_categories);
 
         // Android's SELinux policy denies untrusted apps direct netlink
         // route-socket access (bind() -> EACCES), which is exactly what
@@ -55,6 +86,10 @@ lt::session& get_session() {
                           "0.0.0.0:6881,[::]:6881");
 
         g_session = std::make_unique<lt::session>(settings);
+
+        // Detached on purpose - it's meant to run for the whole process
+        // lifetime, same as g_session itself.
+        std::thread(alert_pump_loop, g_session.get()).detach();
     }
     return *g_session;
 }
