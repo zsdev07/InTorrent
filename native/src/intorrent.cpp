@@ -38,6 +38,22 @@ lt::session& get_session() {
         settings.set_int(lt::settings_pack::alert_mask,
                           lt::alert_category::status |
                           lt::alert_category::error);
+
+        // Android's SELinux policy denies untrusted apps direct netlink
+        // route-socket access (bind() -> EACCES), which is exactly what
+        // libtorrent's default interface auto-detection relies on to
+        // decide what to listen on. Left alone, that auto-detection
+        // silently fails and the session never opens a working
+        // listen/DHT socket at all - no outbound UDP ever leaves the
+        // device, so peers/trackers/DHT all stay at 0 forever, even
+        // though the torrent and network are both fine.
+        //
+        // Fix: bypass auto-detection entirely and explicitly listen on
+        // all interfaces (both v4 and v6) ourselves, so libtorrent never
+        // needs to touch netlink to figure that out.
+        settings.set_str(lt::settings_pack::listen_interfaces,
+                          "0.0.0.0:6881,[::]:6881");
+
         g_session = std::make_unique<lt::session>(settings);
     }
     return *g_session;
