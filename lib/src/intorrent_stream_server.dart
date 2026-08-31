@@ -112,6 +112,22 @@ class IntorrentStreamServer {
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
+    try {
+      await _handleRequestInner(request);
+    } catch (e, st) {
+      // Last-resort safety net: nothing below here should ever reach an
+      // unhandled exception again (that's what killed the request outright
+      // the last two times), but if something new does, log it and close
+      // the response instead of taking the whole isolate down with it.
+      // ignore: avoid_print
+      print('[IntorrentStreamServer] unhandled error in _handleRequest: $e\n$st');
+      try {
+        await request.response.close();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _handleRequestInner(HttpRequest request) async {
     final segments = request.uri.pathSegments;
 
     // ignore: avoid_print
@@ -206,9 +222,44 @@ class IntorrentStreamServer {
     }
 
     final bindings = IntorrentBindings();
-    final file = File(entry.filePath).openSync();
+    final file = File(entry.filePath);
+
+    // libtorrent doesn't create the file on disk until the first piece
+    // actually lands - it's not there the instant the torrent enters
+    // "downloading". A player firing its opening request right as
+    // streaming starts (the normal case) can easily beat that first
+    // write, so opening unconditionally here throws PathNotFoundException
+    // before the per-chunk availability wait below ever gets a chance to
+    // run. Wait for the file itself first, bounded by the same timeout.
+    final openDeadline = DateTime.now().add(rangeWaitTimeout);
+    while (!file.existsSync()) {
+      if (!_entries.containsKey(id)) {
+        await request.response.close();
+        return;
+      }
+      if (DateTime.now().isAfter(openDeadline)) {
+        final reason = _diagnoseStall(bindings, id!);
+        onStreamStalled?.call(id, reason);
+        // ignore: avoid_print
+        print('[IntorrentStreamServer] stream/$id file never appeared after '
+            '${rangeWaitTimeout.inSeconds}s: $reason');
+        await request.response.close();
+        return;
+      }
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+
+    late final RandomAccessFile raf;
     try {
-      file.setPositionSync(start);
+      raf = file.openSync();
+    } catch (e) {
+      // ignore: avoid_print
+      print('[IntorrentStreamServer] stream/$id failed to open file: $e');
+      await request.response.close();
+      return;
+    }
+    try {
+      raf.setPositionSync(start);
       const chunkSize = 64 * 1024;
       var position = start;
       var remaining = length;
@@ -248,14 +299,14 @@ class IntorrentStreamServer {
           await Future.delayed(const Duration(milliseconds: 200));
         }
 
-        final chunk = file.readSync(readSize);
+        final chunk = raf.readSync(readSize);
         if (chunk.isEmpty) break;
         request.response.add(chunk);
         position += chunk.length;
         remaining -= chunk.length;
       }
     } finally {
-      file.closeSync();
+      raf.closeSync();
       await request.response.close();
     }
   }
