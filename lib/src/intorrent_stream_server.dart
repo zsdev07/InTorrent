@@ -178,37 +178,22 @@ class IntorrentStreamServer {
       return;
     }
 
-    // Wait until the native side confirms these bytes have actually
-    // been downloaded - do NOT trust the file's on-disk size.
-    // Bounded by rangeWaitTimeout so a dead/stalled torrent fails
-    // loudly instead of hanging the player forever.
-    final bindings = IntorrentBindings();
-    final deadline = DateTime.now().add(rangeWaitTimeout);
-
-    while (bindings.isRangeAvailable(id!, entry.fileIndex, start, length) != 1) {
-      // Torrent could have been removed mid-stream (e.g. user backed
-      // out of the player) - stop waiting instead of looping forever.
-      if (!_entries.containsKey(id)) {
-        request.response.statusCode = HttpStatus.notFound;
-        await request.response.close();
-        return;
-      }
-
-      if (DateTime.now().isAfter(deadline)) {
-        final reason = _diagnoseStall(bindings, id);
-        onStreamStalled?.call(id, reason);
-
-        request.response.statusCode = HttpStatus.gatewayTimeout; // 504
-        request.response.headers.contentType = ContentType.text;
-        request.response.write(
-            'InTorrent: range not available after ${rangeWaitTimeout.inSeconds}s. $reason');
-        await request.response.close();
-        return;
-      }
-
-      await Future.delayed(const Duration(milliseconds: 200));
-    }
-
+    // Headers can be sent immediately - the total size (and therefore
+    // Content-Length/Content-Range) comes from the torrent's metadata,
+    // which is already known, not from how much has actually
+    // downloaded. Waiting here at all (as this used to, for the WHOLE
+    // requested range) was the real bug: a player asking to start
+    // playback sends an open-ended range like "bytes=0-" (meaning
+    // "from the start, stream as it comes"), which this code was
+    // parsing as start=0/length=<entire file> and then blocking until
+    // that ENTIRE range was fully downloaded before sending anything
+    // at all - not "give me what you have," but "give me everything or
+    // nothing." On anything but a tiny, already-finished torrent, that
+    // means no bytes go out until the torrent hits 100%, which is
+    // exactly what made this look fine in earlier testing (a small,
+    // well-seeded test file that finished in ~5s) and fail against any
+    // real, slower one - the player's own connection timeout gives up
+    // long before a multi-GB torrent finishes downloading.
     request.response.statusCode =
         isPartial ? HttpStatus.partialContent : HttpStatus.ok;
     request.response.headers
@@ -220,16 +205,53 @@ class IntorrentStreamServer {
           .set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/${entry.totalSize}');
     }
 
+    final bindings = IntorrentBindings();
     final file = File(entry.filePath).openSync();
     try {
       file.setPositionSync(start);
       const chunkSize = 64 * 1024;
+      var position = start;
       var remaining = length;
+
       while (remaining > 0) {
         final readSize = remaining < chunkSize ? remaining : chunkSize;
+
+        // Wait for just THIS chunk, not the whole remaining range - a
+        // sequential-download torrent fills in roughly in playback
+        // order, so the next small chunk is usually available (or
+        // close to it) well before the rest of the file is. Bounded by
+        // the same rangeWaitTimeout as before, just scoped per-chunk
+        // now instead of to the entire request.
+        final deadline = DateTime.now().add(rangeWaitTimeout);
+        while (bindings.isRangeAvailable(id!, entry.fileIndex, position, readSize) != 1) {
+          if (!_entries.containsKey(id)) {
+            // Torrent removed mid-stream (e.g. user backed out) -
+            // headers are already sent, so just stop writing rather
+            // than trying to send a fresh status code.
+            await request.response.close();
+            return;
+          }
+          if (DateTime.now().isAfter(deadline)) {
+            final reason = _diagnoseStall(bindings, id);
+            onStreamStalled?.call(id, reason);
+            // ignore: avoid_print
+            print('[IntorrentStreamServer] stream/$id stalled at byte '
+                '$position after ${rangeWaitTimeout.inSeconds}s: $reason');
+            // Headers already went out with a promised Content-Length -
+            // the best we can do now is stop, leaving the player with
+            // a truncated body it can surface as a read/decode error,
+            // rather than hang past what already looked like a
+            // successful open.
+            await request.response.close();
+            return;
+          }
+          await Future.delayed(const Duration(milliseconds: 200));
+        }
+
         final chunk = file.readSync(readSize);
         if (chunk.isEmpty) break;
         request.response.add(chunk);
+        position += chunk.length;
         remaining -= chunk.length;
       }
     } finally {
