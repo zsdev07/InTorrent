@@ -28,6 +28,32 @@ String _stateName(int value) {
   return (value >= 0 && value < names.length) ? names[value] : 'unknown';
 }
 
+// Was previously hardcoded to video/mp4 for every response regardless of
+// the actual file - harmless for players like mpv that sniff the real
+// container by content, but still objectively wrong (breaks any client
+// that trusts the header, e.g. "Open in External Player" handing this
+// off to another app by MIME type) and cheap to get right.
+ContentType _contentTypeFor(String filePath) {
+  final ext = filePath.contains('.')
+      ? filePath.substring(filePath.lastIndexOf('.') + 1).toLowerCase()
+      : '';
+  switch (ext) {
+    case 'mkv':
+      return ContentType('video', 'x-matroska');
+    case 'mp4':
+    case 'm4v':
+      return ContentType('video', 'mp4');
+    case 'avi':
+      return ContentType('video', 'x-msvideo');
+    case 'webm':
+      return ContentType('video', 'webm');
+    case 'mov':
+      return ContentType('video', 'quicktime');
+    default:
+      return ContentType('application', 'octet-stream');
+  }
+}
+
 class _StreamEntry {
   _StreamEntry({
     required this.filePath,
@@ -185,7 +211,7 @@ class IntorrentStreamServer {
       request.response.headers
         ..set(HttpHeaders.acceptRangesHeader, 'bytes')
         ..set(HttpHeaders.contentLengthHeader, length)
-        ..contentType = ContentType('video', 'mp4');
+        ..contentType = _contentTypeFor(entry.filePath);
       if (isPartial) {
         request.response.headers.set(
             HttpHeaders.contentRangeHeader, 'bytes $start-$end/${entry.totalSize}');
@@ -215,7 +241,7 @@ class IntorrentStreamServer {
     request.response.headers
       ..set(HttpHeaders.acceptRangesHeader, 'bytes')
       ..set(HttpHeaders.contentLengthHeader, length)
-      ..contentType = ContentType('video', 'mp4');
+      ..contentType = _contentTypeFor(entry.filePath);
     if (isPartial) {
       request.response.headers
           .set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/${entry.totalSize}');
