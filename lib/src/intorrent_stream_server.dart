@@ -247,6 +247,23 @@ class IntorrentStreamServer {
           .set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/${entry.totalSize}');
     }
 
+    // Dart's HttpResponse doesn't actually put anything on the wire
+    // until the first .add() call (or close()) - setting statusCode/
+    // headers above only sets local state. Without this flush, a
+    // client gets total silence for however long the file-exists and
+    // per-chunk waits below take - indistinguishable, from the
+    // client's side, from "server never responded at all". That's
+    // exactly what tripped mpv's own open/read timeout at a fixed
+    // ~5s in testing (confirmed via mpv debug log: zero bytes, not
+    // even headers, received in that window) even though the swarm
+    // itself was healthy and downloading - the first requested piece
+    // legitimately just hadn't landed yet, which can easily take a
+    // few seconds with a freshly-connecting swarm. Flushing headers
+    // now means the client sees the connection succeeded immediately
+    // and treats what follows as normal slow buffering instead of a
+    // dead connection.
+    await request.response.flush();
+
     final bindings = IntorrentBindings();
     final file = File(entry.filePath);
 
