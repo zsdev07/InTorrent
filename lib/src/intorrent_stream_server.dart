@@ -54,6 +54,23 @@ ContentType _contentTypeFor(String filePath) {
   }
 }
 
+// Used for closing a response early *after* real headers with a
+// genuine Content-Length promise already went out (client bailed, or
+// our own stall timeout gave up), but before the full body was
+// written. Dart's HttpResponse validates the actual byte count
+// written against the promised Content-Length on close() and throws
+// HttpException on a mismatch - expected and harmless here (the
+// client just gets a truncated body it can surface as its own
+// read/decode error), so it's swallowed rather than bubbling up to
+// the outer handler's generic "unhandled error" log line, which
+// implies something unexpected happened when this is a known,
+// anticipated case.
+Future<void> _closeQuietly(HttpResponse response) async {
+  try {
+    await response.close();
+  } catch (_) {}
+}
+
 class _StreamEntry {
   _StreamEntry({
     required this.filePath,
@@ -277,7 +294,7 @@ class IntorrentStreamServer {
     final openDeadline = DateTime.now().add(rangeWaitTimeout);
     while (!file.existsSync()) {
       if (!_entries.containsKey(id)) {
-        await request.response.close();
+        await _closeQuietly(request.response);
         return;
       }
       if (DateTime.now().isAfter(openDeadline)) {
@@ -286,7 +303,7 @@ class IntorrentStreamServer {
         // ignore: avoid_print
         print('[IntorrentStreamServer] stream/$id file never appeared after '
             '${rangeWaitTimeout.inSeconds}s: $reason');
-        await request.response.close();
+        await _closeQuietly(request.response);
         return;
       }
       await Future.delayed(const Duration(milliseconds: 200));
@@ -322,7 +339,7 @@ class IntorrentStreamServer {
             // Torrent removed mid-stream (e.g. user backed out) -
             // headers are already sent, so just stop writing rather
             // than trying to send a fresh status code.
-            await request.response.close();
+            await _closeQuietly(request.response);
             return;
           }
           if (DateTime.now().isAfter(deadline)) {
@@ -336,7 +353,7 @@ class IntorrentStreamServer {
             // a truncated body it can surface as a read/decode error,
             // rather than hang past what already looked like a
             // successful open.
-            await request.response.close();
+            await _closeQuietly(request.response);
             return;
           }
           await Future.delayed(const Duration(milliseconds: 200));
