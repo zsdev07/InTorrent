@@ -167,10 +167,29 @@ extern "C" int32_t intorrent_add_magnet(const char* uri) {
         return -1;
     }
 
-    // Sequential-order piece priority is set later, in streamUrl() -
-    // addMagnet's only job is to register the torrent and hand back
-    // a stable id.
+    // Sequential download is set HERE, before add_torrent() ever runs -
+    // not later in intorrent_prepare_stream() like it used to be. That
+    // used to leave a real window (confirmed in testing via
+    // libtorrent's own picker_log: a peer's first piece pick landed via
+    // [random_pieces] on some arbitrary mid-file piece a couple hundred
+    // ms *before* sequential_download got enabled - and once enabled,
+    // libtorrent's sequential picker continued forward from THAT
+    // already-anchored piece, not from piece 0) between peers
+    // connecting/requesting and Dart noticing metadata was ready and
+    // calling streamUrl(). With many peers connecting in a fast burst,
+    // several of them could each anchor onto their own arbitrary first
+    // piece in that window, meaning piece 0 (the one byte a player
+    // actually needs first) might not complete for a long time despite
+    // a large, healthy swarm. Setting the flag on params.flags instead
+    // means it's active before the torrent is even added to the
+    // session - no peer connection, and therefore no piece request, can
+    // ever happen before sequential mode is on.
     //
+    // File priorities still can't be set here - which file is even
+    // being streamed isn't known until metadata arrives and Dart picks
+    // one - so that part correctly stays in intorrent_prepare_stream().
+    params.flags |= lt::torrent_flags::sequential_download;
+
     // g_save_path defaults to "." (broken on Android - resolves to
     // an unwritable directory) unless intorrent_init() was called
     // first with a real, writable directory. See intorrent_init's
@@ -336,8 +355,12 @@ extern "C" int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
     priorities[file_index] = lt::download_priority_t{7};
     handle.prioritize_files(priorities);
 
-    // Sequential (playback-order) piece downloading instead of
-    // libtorrent's default rarest-first - essential for streaming.
+    // Sequential mode is actually enabled back in intorrent_add_magnet()
+    // now, before this torrent's first peer connection ever happens -
+    // see the comment there for why. This call is now just a no-op
+    // safety net (set_flags on a flag that's already set does nothing)
+    // in case some future code path ever adds a torrent without going
+    // through intorrent_add_magnet.
     handle.set_flags(lt::torrent_flags::sequential_download,
                       lt::torrent_flags::sequential_download);
 
