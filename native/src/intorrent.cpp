@@ -22,6 +22,7 @@
 #include <cstring>
 #include <thread>
 #include <string>
+#include <algorithm>
 
 #include <android/log.h>
 #define INTORRENT_ALERT_TAG "InTorrentAlert"
@@ -363,6 +364,44 @@ extern "C" int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
     // through intorrent_add_magnet.
     handle.set_flags(lt::torrent_flags::sequential_download,
                       lt::torrent_flags::sequential_download);
+
+    // End-of-file piece prioritization -----------------------------------
+    //
+    // Real-world players (confirmed via direct VLC testing) issue a
+    // second HTTP request for a byte range deep into the file - almost
+    // certainly probing for MKV's Cues/seek-index element, which
+    // authoring tools commonly place near the end of the file - before
+    // they'll consider the stream open. Under pure sequential (low-to-
+    // high) download that range doesn't exist until the file is nearly
+    // fully downloaded, so that probe request just hangs against
+    // intorrent_stream_server.dart's stall timeout and the player
+    // reports it can't open the stream at all, even though the front of
+    // the file is streaming fine.
+    //
+    // Fix: alongside sequential_download for the front of the file,
+    // bump the last few pieces of THIS file to top priority too, so the
+    // tail gets fetched in parallel with the sequential front instead of
+    // only arriving once the download is basically finished - the same
+    // technique working torrent-streaming clients use.
+    const std::int64_t piece_size = info->piece_length();
+    const std::int64_t file_off = files.file_offset(fidx);
+    const std::int64_t file_sz = files.file_size(fidx);
+
+    // Cover the last 4 MiB of the file - generous headroom over a
+    // typical Cues/seek-index element (usually well under 1 MiB)
+    // without meaningfully competing with the front-of-file sequential
+    // download for a normal-sized video.
+    constexpr std::int64_t kTailBytes = 4LL * 1024 * 1024;
+    const std::int64_t tail_start =
+        file_off + std::max<std::int64_t>(0, file_sz - kTailBytes);
+    const std::int64_t tail_end = file_off + file_sz; // exclusive
+
+    const int first_tail_piece = static_cast<int>(tail_start / piece_size);
+    const int last_tail_piece = static_cast<int>((tail_end - 1) / piece_size);
+
+    for (int piece = first_tail_piece; piece <= last_tail_piece; ++piece) {
+        handle.piece_priority(lt::piece_index_t{piece}, lt::download_priority_t{7});
+    }
 
     std::string save_path = handle.status().save_path;
     std::string file_path = files.file_path(fidx, save_path);
