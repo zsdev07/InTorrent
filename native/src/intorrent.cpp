@@ -433,6 +433,31 @@ extern "C" int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
         return -1;
     }
 
+    const lt::file_index_t fidx{file_index};
+
+    lt::torrent_status status = handle.status(lt::torrent_handle::query_pieces);
+
+    // Convert the file-relative byte range into torrent-relative piece
+    // indices, then check every piece in that range is marked downloaded.
+    const std::int64_t file_offset = files.file_offset(fidx);
+    const std::int64_t piece_size = info->piece_length();
+
+    const std::int64_t range_start = file_offset + start;
+    const std::int64_t range_end = file_offset + start + length; // exclusive
+
+    const int first_piece = static_cast<int>(range_start / piece_size);
+    const int last_piece = static_cast<int>((range_end - 1) / piece_size);
+
+    for (int piece = first_piece; piece <= last_piece; ++piece) {
+        const lt::piece_index_t pidx{piece};
+        if (piece < 0 || piece >= status.pieces.size() || !status.pieces[pidx]) {
+            return 0; // at least one needed piece isn't downloaded yet
+        }
+    }
+
+    return 1;
+}
+
 extern "C" int32_t intorrent_prioritize_range(
     int32_t id,
     int32_t file_index,
@@ -489,30 +514,6 @@ extern "C" int32_t intorrent_prioritize_range(
   }
 
   return 0;
-}
-    const lt::file_index_t fidx{file_index};
-
-    lt::torrent_status status = handle.status(lt::torrent_handle::query_pieces);
-
-    // Convert the file-relative byte range into torrent-relative piece
-    // indices, then check every piece in that range is marked downloaded.
-    const std::int64_t file_offset = files.file_offset(fidx);
-    const std::int64_t piece_size = info->piece_length();
-
-    const std::int64_t range_start = file_offset + start;
-    const std::int64_t range_end = file_offset + start + length; // exclusive
-
-    const int first_piece = static_cast<int>(range_start / piece_size);
-    const int last_piece = static_cast<int>((range_end - 1) / piece_size);
-
-    for (int piece = first_piece; piece <= last_piece; ++piece) {
-        const lt::piece_index_t pidx{piece};
-        if (piece < 0 || piece >= status.pieces.size() || !status.pieces[pidx]) {
-            return 0; // at least one needed piece isn't downloaded yet
-        }
-    }
-
-    return 1;
 }
 
 extern "C" int32_t intorrent_pause(int32_t id) {
