@@ -136,6 +136,18 @@ int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
 int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
                                       int64_t start, int64_t length);
 
+// Promotes the torrent pieces containing [start, start + length) in file
+// `file_index` to top priority and gives them immediate download deadlines.
+//
+// Call this when the local HTTP server receives a Range request. This is
+// required because media players may request metadata/cues near the end of
+// an MKV before sequential playback reaches those pieces.
+//
+// Returns 0 on success, -1 on invalid id, file index, range, or missing
+// metadata.
+int32_t intorrent_prioritize_range(int32_t id, int32_t file_index,
+                                   int64_t start, int64_t length);
+
 // Pauses torrent `id`. Returns 0 on success, -1 if `id` is unknown.
 int32_t intorrent_pause(int32_t id);
 
