@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/status-early%20development-orange" alt="Status" />
+  <img src="https://img.shields.io/badge/status-mid%20development-yellow" alt="Status" />
   <img src="https://img.shields.io/badge/license-MIT%20(attribution)-blue" alt="License" />
 </p>
 
