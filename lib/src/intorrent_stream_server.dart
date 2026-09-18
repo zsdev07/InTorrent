@@ -327,6 +327,25 @@ class IntorrentStreamServer {
       while (remaining > 0) {
         final readSize = remaining < chunkSize ? remaining : chunkSize;
 
+        // Ask libtorrent to immediately fetch the exact bytes requested by
+        // the HTTP client. This is essential for MKV files: mpv commonly
+        // requests Cues/index data near EOF before sequential playback gets
+        // there. Priority alone is not enough; a deadline interrupts normal
+        // sequential picking for the requested pieces.
+        final prioritizeResult = bindings.prioritizeRange(
+          id!,
+          entry.fileIndex,
+          position,
+          readSize,
+        );
+
+        if (prioritizeResult != 0) {
+          print('[IntorrentStreamServer] could not prioritize '
+              'stream/$id range=$position-${position + readSize - 1}');
+          await _closeQuietly(request.response);
+          return;
+        }
+        
         // Wait for just THIS chunk, not the whole remaining range - a
         // sequential-download torrent fills in roughly in playback
         // order, so the next small chunk is usually available (or
