@@ -101,6 +101,23 @@ typedef IntorrentIsRangeAvailableNative = Int32 Function(
 typedef IntorrentIsRangeAvailableDart = int Function(
     int id, int fileIndex, int start, int length);
 
+/// Native signature:
+/// int32_t intorrent_prioritize_range(int32_t id, int32_t file_index,
+///                                    int64_t start, int64_t length);
+typedef IntorrentPrioritizeRangeNative = Int32 Function(
+  Int32 id,
+  Int32 fileIndex,
+  Int64 start,
+  Int64 length,
+);
+
+typedef IntorrentPrioritizeRangeDart = int Function(
+  int id,
+  int fileIndex,
+  int start,
+  int length,
+);
+
 /// Native signature: int32_t intorrent_pause(int32_t id);
 typedef IntorrentPauseNative = Int32 Function(Int32 id);
 typedef IntorrentPauseDart = int Function(int id);
@@ -136,6 +153,9 @@ class IntorrentBindings {
     isRangeAvailable = _lib
         .lookup<NativeFunction<IntorrentIsRangeAvailableNative>>('intorrent_is_range_available')
         .asFunction<IntorrentIsRangeAvailableDart>();
+    prioritizeRange = _lib
+        .lookup<NativeFunction<IntorrentPrioritizeRangeNative>>('intorrent_prioritize_range')
+        .asFunction<IntorrentPrioritizeRangeDart>();
     pause = _lib
         .lookup<NativeFunction<IntorrentPauseNative>>('intorrent_pause')
         .asFunction<IntorrentPauseDart>();
@@ -155,6 +175,7 @@ class IntorrentBindings {
   late final IntorrentGetStatusDart getStatus;
   late final IntorrentPrepareStreamDart prepareStream;
   late final IntorrentIsRangeAvailableDart isRangeAvailable;
+  late final IntorrentPrioritizeRangeDart prioritizeRange;
   late final IntorrentPauseDart pause;
   late final IntorrentResumeDart resume;
   late final IntorrentRemoveDart remove;
