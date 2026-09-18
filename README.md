@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/build-android-lightgrey" alt="Build - Android" />
+  <img src="https://img.shields.io/badge/build-android-green" alt="Build - Android" />
   <img src="https://img.shields.io/badge/build-windows-lightgrey" alt="Build - Windows" />
   <img src="https://img.shields.io/badge/build-linux-lightgrey" alt="Build - Linux" />
   <img src="https://img.shields.io/badge/build-macos-lightgrey" alt="Build - macOS" />
@@ -17,8 +17,6 @@
 # InTorrent
 
 InTorrent is an open-source Flutter plugin that wraps the [libtorrent](https://libtorrent.org) C++ engine via a small, focused Dart FFI API. It's built to do one thing well: let a Flutter app add a magnet link, track its status, and stream a file from it with a minimal, predictable surface that stays easy to maintain.
-
-> **Status: Early development.** InTorrent is under active design and is not yet ready for production use. The core API is being built out, check back for updates, or follow along in the commit history.
 
 ## Why InTorrent?
 
@@ -41,7 +39,7 @@ This list may evolve as development continues, but the goal is to keep it minima
 
 ## Platform Support (planned)
 
-- [ ] Android (arm64-v8a, armeabi-v7a, x86_64)
+- [x] Android (arm64-v8a, armeabi-v7a, x86_64)
 - [ ] iOS
 - [ ] Windows
 - [ ] macOS
