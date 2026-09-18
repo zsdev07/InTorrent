@@ -432,6 +432,64 @@ extern "C" int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
     if (file_index < 0 || file_index >= files.num_files()) {
         return -1;
     }
+
+extern "C" int32_t intorrent_prioritize_range(
+    int32_t id,
+    int32_t file_index,
+    int64_t start,
+    int64_t length) {
+  if (start < 0 || length <= 0) {
+    return -1;
+  }
+
+  lt::torrent_handle handle;
+  if (!find_handle(id, handle) || !handle.is_valid()) {
+    return -1;
+  }
+
+  const std::shared_ptr<const lt::torrent_info> info =
+      handle.torrent_file();
+  if (!info) {
+    return -1;
+  }
+
+  const lt::file_storage& files = info->layout();
+  if (file_index < 0 || file_index >= files.num_files()) {
+    return -1;
+  }
+
+  const lt::file_index_t file_index_native{file_index};
+  const std::int64_t file_size = files.file_size(file_index_native);
+
+  // Reject invalid ranges and clamp an open-ended caller range to the file.
+  if (start >= file_size) {
+    return -1;
+  }
+  const std::int64_t safe_length =
+      std::min<std::int64_t>(length, file_size - start);
+
+  const std::int64_t piece_size = info->piece_length();
+  const std::int64_t file_offset = files.file_offset(file_index_native);
+  const std::int64_t first_byte = file_offset + start;
+  const std::int64_t last_byte_exclusive = first_byte + safe_length;
+
+  const int first_piece = static_cast<int>(first_byte / piece_size);
+  const int last_piece =
+      static_cast<int>((last_byte_exclusive - 1) / piece_size);
+
+  for (int piece = first_piece; piece <= last_piece; ++piece) {
+    const lt::piece_index_t piece_index{piece};
+
+    // Priority 7 is libtorrent's highest normal download priority.
+    handle.piece_priority(piece_index, lt::download_priority_t{7});
+
+    // A deadline tells libtorrent this is required immediately by the media
+    // client, rather than merely being a high-priority sequential piece.
+    handle.set_piece_deadline(piece_index, 0);
+  }
+
+  return 0;
+}
     const lt::file_index_t fidx{file_index};
 
     lt::torrent_status status = handle.status(lt::torrent_handle::query_pieces);
