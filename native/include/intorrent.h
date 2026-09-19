@@ -109,8 +109,9 @@ int32_t intorrent_get_file_info(int32_t id, int32_t file_index,
                                  int64_t* out_size);
 
 // Prepares torrent `id` for streaming file `file_index` inside it:
-// sets sequential (playback-order) piece downloading and deprioritizes
-// every other file in the torrent.
+// sets sequential (playback-order) piece downloading, deprioritizes
+// every other file in the torrent, and starts a deadline window over
+// the first pieces of the file.
 //
 // out_path: caller-allocated buffer that will receive the absolute
 //           file path on disk (null-terminated). Note: libtorrent
@@ -136,17 +137,63 @@ int32_t intorrent_prepare_stream(int32_t id, int32_t file_index,
 int32_t intorrent_is_range_available(int32_t id, int32_t file_index,
                                       int64_t start, int64_t length);
 
-// Promotes the torrent pieces containing [start, start + length) in file
-// `file_index` to top priority and gives them immediate download deadlines.
+// Returns how many bytes, counting from `start` and looking at most
+// `max_len` bytes ahead, of file `file_index` are already downloaded
+// CONTIGUOUSLY (i.e. safe to read in one go). 0 means the very first
+// piece is still missing. Much cheaper than calling
+// intorrent_is_range_available() in small steps: the piece bitfield is
+// cached natively for ~100 ms, so this never blocks on libtorrent's
+// network thread.
 //
-// Call this when the local HTTP server receives a Range request. This is
-// required because media players may request metadata/cues near the end of
-// an MKV before sequential playback reaches those pieces.
+// Returns -1 on error (bad id, bad file_index, metadata not ready).
+int64_t intorrent_available_bytes(int32_t id, int32_t file_index,
+                                   int64_t start, int64_t max_len);
+
+// Gives the first missing pieces (at most 16) of the byte range
+// [start, start + length) of file `file_index` increasing download
+// deadlines, so libtorrent requests them IN ORDER from its fastest
+// peers and re-requests from other peers when one is slow.
 //
-// Returns 0 on success, -1 on invalid id, file index, range, or missing
-// metadata.
+// Call this when the reader is close to (or stuck at) the end of the
+// contiguous downloaded data - NOT for every chunk served. Pair every
+// stream request with intorrent_release_range() when it ends.
+//
+// Returns 0 on success, -1 on invalid id, file index, range, or
+// missing metadata.
 int32_t intorrent_prioritize_range(int32_t id, int32_t file_index,
                                    int64_t start, int64_t length);
+
+// Undoes intorrent_prioritize_range() for the same byte range: removes
+// the deadlines of pieces that are still missing and puts them back to
+// their normal priority. Call it when an HTTP request ends (player
+// seeked away / closed the connection) so stale deadlines can't keep
+// pulling bandwidth towards a position nobody is reading any more.
+//
+// Returns 0 on success, -1 on invalid id, file index or missing metadata.
+int32_t intorrent_release_range(int32_t id, int32_t file_index,
+                                int64_t start, int64_t length);
+
+// PAUSE-PREFETCH: starts an ordered background download of
+// [start, start + length) of file `file_index` at full speed.
+//
+// Only pieces inside that window stay wanted (everything else in the
+// torrent is set to priority 0), so libtorrent's sequential picker walks
+// the window strictly in order and STOPS at its end - it never goes
+// random and never pulls the rest of the movie. Anything already
+// downloaded stays on disk exactly as it is (same torrent, same file).
+//
+// Returns 0 on success, -1 on invalid id/file index/range or missing
+// metadata.
+int32_t intorrent_prefetch_start(int32_t id, int32_t file_index,
+                                 int64_t start, int64_t length);
+
+// Ends a prefetch started by intorrent_prefetch_start(): the whole
+// streamed file goes back to normal in-order downloading. Everything
+// downloaded so far is kept. Safe to call when no prefetch is active
+// (returns 0).
+//
+// Returns 0 on success, -1 if `id` is unknown.
+int32_t intorrent_prefetch_cancel(int32_t id);
 
 // Pauses torrent `id`. Returns 0 on success, -1 if `id` is unknown.
 int32_t intorrent_pause(int32_t id);
