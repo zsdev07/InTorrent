@@ -2,10 +2,18 @@
 //
 // A single local HTTP server (127.0.0.1, lazily started) that serves
 // torrent files to your video player as they download. Every byte
-// range is checked against the native side's intorrent_is_range_available
+// range is checked against the native side (intorrent_available_bytes)
 // before being read from disk - libtorrent preallocates files at full
 // size immediately, so file size alone is never a safe signal that
 // bytes are actually downloaded.
+//
+// Streaming behaviour (see the per-request loop in _handleRequestInner):
+//   * reads in up to 512 KiB slices, sized by what is ACTUALLY downloaded
+//   * awaits a socket flush after every slice (backpressure + keeps the
+//     UI isolate responsive)
+//   * only asks libtorrent for deadlines when the reader is near the
+//     download frontier, and releases them when the request ends
+//   * notices when the player hangs up instead of waiting out a timeout
 
 import 'dart:async';
 import 'dart:ffi';
@@ -81,7 +89,29 @@ class _StreamEntry {
   final String filePath;
   final int fileIndex;
   final int totalSize;
+
+  /// Where the player's main (long) request has been served up to.
+  /// See [IntorrentStreamServer.readCursor].
+  int? readCursor;
 }
+
+/// Biggest slice handed to the socket per loop iteration.
+const int _maxChunk = 512 * 1024;
+
+/// While the reader is within this many bytes of the end of the
+/// contiguous downloaded data, the next missing pieces get deadlines.
+const int _lookaheadBytes = 8 * 1024 * 1024;
+
+/// Size of the deadline window requested at the download frontier.
+const int _windowBytes = 8 * 1024 * 1024;
+
+/// A window is re-applied at least this often while the reader waits.
+const Duration _windowRefresh = Duration(seconds: 2);
+
+/// Requests asking for more than this are treated as "the" playback
+/// stream (as opposed to a short tail/Cues probe) when tracking
+/// [IntorrentStreamServer.readCursor].
+const int _mainStreamMinBytes = 16 * 1024 * 1024;
 
 class IntorrentStreamServer {
   IntorrentStreamServer._();
@@ -281,32 +311,44 @@ class IntorrentStreamServer {
     // dead connection.
     await request.response.flush();
 
+    // `entry != null` above already guarantees a valid id; make that
+    // explicit once so nothing below needs `id!` sprinkled around.
+    final torrentId = id!;
     final bindings = IntorrentBindings();
     final file = File(entry.filePath);
+
+    // Notice the player hanging up (seek, close, reconnect). Without this
+    // an abandoned request kept waiting - and kept asking libtorrent for
+    // the pieces at its OLD position - for up to rangeWaitTimeout.
+    var clientGone = false;
+    unawaited(request.response.done.then(
+      (_) => clientGone = true,
+      onError: (_) => clientGone = true,
+    ));
 
     // libtorrent doesn't create the file on disk until the first piece
     // actually lands - it's not there the instant the torrent enters
     // "downloading". A player firing its opening request right as
     // streaming starts (the normal case) can easily beat that first
     // write, so opening unconditionally here throws PathNotFoundException
-    // before the per-chunk availability wait below ever gets a chance to
-    // run. Wait for the file itself first, bounded by the same timeout.
+    // before the availability wait below ever gets a chance to run. Wait
+    // for the file itself first, bounded by the same timeout.
     final openDeadline = DateTime.now().add(rangeWaitTimeout);
     while (!file.existsSync()) {
-      if (!_entries.containsKey(id)) {
+      if (clientGone || !_entries.containsKey(torrentId)) {
         await _closeQuietly(request.response);
         return;
       }
       if (DateTime.now().isAfter(openDeadline)) {
-        final reason = _diagnoseStall(bindings, id!);
-        onStreamStalled?.call(id, reason);
+        final reason = _diagnoseStall(bindings, torrentId);
+        onStreamStalled?.call(torrentId, reason);
         // ignore: avoid_print
-        print('[IntorrentStreamServer] stream/$id file never appeared after '
+        print('[IntorrentStreamServer] stream/$torrentId file never appeared after '
             '${rangeWaitTimeout.inSeconds}s: $reason');
         await _closeQuietly(request.response);
         return;
       }
-      await Future.delayed(const Duration(milliseconds: 200));
+      await Future.delayed(const Duration(milliseconds: 100));
     }
 
     late final RandomAccessFile raf;
@@ -314,81 +356,125 @@ class IntorrentStreamServer {
       raf = file.openSync();
     } catch (e) {
       // ignore: avoid_print
-      print('[IntorrentStreamServer] stream/$id failed to open file: $e');
-      await request.response.close();
+      print('[IntorrentStreamServer] stream/$torrentId failed to open file: $e');
+      await _closeQuietly(request.response);
       return;
     }
+
+    final isMainStream = length > _mainStreamMinBytes;
+
+    // Byte position of the last deadline window this request asked for
+    // (-1 = none yet), so it can be released again when the request ends.
+    var windowStart = -1;
+    var windowAt = DateTime.fromMillisecondsSinceEpoch(0);
+    DateTime? stallSince;
+
     try {
-      raf.setPositionSync(start);
-      const chunkSize = 64 * 1024;
+      await raf.setPosition(start);
       var position = start;
       var remaining = length;
 
-      while (remaining > 0) {
-        final readSize = remaining < chunkSize ? remaining : chunkSize;
-
-        // Ask libtorrent to immediately fetch the exact bytes requested by
-        // the HTTP client. This is essential for MKV files: mpv commonly
-        // requests Cues/index data near EOF before sequential playback gets
-        // there. Priority alone is not enough; a deadline interrupts normal
-        // sequential picking for the requested pieces.
-        final prioritizeResult = bindings.prioritizeRange(
-          id!,
-          entry.fileIndex,
-          position,
-          readSize,
-        );
-
-        if (prioritizeResult != 0) {
-          print('[IntorrentStreamServer] could not prioritize '
-              'stream/$id range=$position-${position + readSize - 1}');
-          await _closeQuietly(request.response);
-          return;
+      while (remaining > 0 && !clientGone) {
+        if (!_entries.containsKey(torrentId)) {
+          // Torrent removed mid-stream (e.g. user backed out) - headers
+          // are already sent, so just stop writing.
+          break;
         }
-        
-        // Wait for just THIS chunk, not the whole remaining range - a
-        // sequential-download torrent fills in roughly in playback
-        // order, so the next small chunk is usually available (or
-        // close to it) well before the rest of the file is. Bounded by
-        // the same rangeWaitTimeout as before, just scoped per-chunk
-        // now instead of to the entire request.
-        final deadline = DateTime.now().add(rangeWaitTimeout);
-        while (bindings.isRangeAvailable(id!, entry.fileIndex, position, readSize) != 1) {
-          if (!_entries.containsKey(id)) {
-            // Torrent removed mid-stream (e.g. user backed out) -
-            // headers are already sent, so just stop writing rather
-            // than trying to send a fresh status code.
-            await _closeQuietly(request.response);
-            return;
+
+        // ONE cheap call tells us how many bytes are readable right now
+        // (the native side caches the piece bitfield), replacing the old
+        // "is this 64 KB available?" poll + per-chunk prioritize call.
+        final lookahead = remaining < _lookaheadBytes ? remaining : _lookaheadBytes;
+        final ahead =
+            bindings.availableBytes(torrentId, entry.fileIndex, position, lookahead);
+        if (ahead < 0) {
+          // ignore: avoid_print
+          print('[IntorrentStreamServer] stream/$torrentId availableBytes failed at '
+              'byte $position');
+          break;
+        }
+
+        // Close to (or at) the download frontier: tell libtorrent which
+        // pieces are needed next so it fetches them in order, from its
+        // fastest peers. Only done when needed - never while the reader
+        // is comfortably far behind the frontier.
+        if (ahead < lookahead) {
+          final frontier = position + ahead;
+          final now = DateTime.now();
+          if (frontier != windowStart || now.difference(windowAt) > _windowRefresh) {
+            final beyond = remaining - ahead;
+            bindings.prioritizeRange(
+              torrentId,
+              entry.fileIndex,
+              frontier,
+              beyond < _windowBytes ? beyond : _windowBytes,
+            );
+            windowStart = frontier;
+            windowAt = now;
           }
-          if (DateTime.now().isAfter(deadline)) {
-            final reason = _diagnoseStall(bindings, id);
-            onStreamStalled?.call(id, reason);
+        }
+
+        if (ahead == 0) {
+          // Waiting for the piece at `position`.
+          final since = stallSince ??= DateTime.now();
+          if (DateTime.now().difference(since) > rangeWaitTimeout) {
+            final reason = _diagnoseStall(bindings, torrentId);
+            onStreamStalled?.call(torrentId, reason);
             // ignore: avoid_print
-            print('[IntorrentStreamServer] stream/$id stalled at byte '
+            print('[IntorrentStreamServer] stream/$torrentId stalled at byte '
                 '$position after ${rangeWaitTimeout.inSeconds}s: $reason');
             // Headers already went out with a promised Content-Length -
-            // the best we can do now is stop, leaving the player with
-            // a truncated body it can surface as a read/decode error,
-            // rather than hang past what already looked like a
-            // successful open.
-            await _closeQuietly(request.response);
-            return;
+            // the best we can do now is stop, leaving the player with a
+            // truncated body it can surface as a read error.
+            break;
           }
-          await Future.delayed(const Duration(milliseconds: 200));
+          await Future.delayed(const Duration(milliseconds: 40));
+          continue;
+        }
+        stallSince = null;
+
+        final n = ahead < _maxChunk ? ahead : _maxChunk;
+        final chunk = await raf.read(n);
+        if (chunk.isEmpty) break;
+
+        try {
+          request.response.add(chunk);
+          // Backpressure AND a yield to the event loop. Without this the
+          // "data is available" path never awaited anything: it read
+          // synchronously in a tight loop, buffered whole ranges in RAM
+          // and froze the UI isolate the server shares with Flutter.
+          await request.response.flush();
+        } catch (_) {
+          break; // client hung up mid-write
         }
 
-        final chunk = raf.readSync(readSize);
-        if (chunk.isEmpty) break;
-        request.response.add(chunk);
         position += chunk.length;
         remaining -= chunk.length;
+        if (isMainStream) entry.readCursor = position;
       }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[IntorrentStreamServer] stream/$torrentId request aborted: $e');
     } finally {
-      raf.closeSync();
-      await request.response.close();
+      try {
+        raf.closeSync();
+      } catch (_) {}
+
+      // Stop asking libtorrent for pieces this request no longer needs.
+      if (windowStart >= 0 && _entries.containsKey(torrentId)) {
+        try {
+          bindings.releaseRange(torrentId, entry.fileIndex, windowStart, _windowBytes);
+        } catch (_) {}
+      }
+
+      await _closeQuietly(request.response);
     }
   }
+
+  /// Byte offset the player's MAIN stream request of torrent [id] has been
+  /// served up to (= where it will read next), or null if nothing has been
+  /// served yet. Short probe requests (MKV Cues near EOF etc.) don't count.
+  int? readCursor(int id) => _entries[id]?.readCursor;
 
   /// Stops serving torrent [id] (call this when the user leaves the
   /// player, alongside `remove(id)`).
