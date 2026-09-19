@@ -146,7 +146,26 @@ Future<void> _ensureSessionInitialized() async {
     // streaming only, no persistent downloads, temp files cleaned up
     // on remove() - so it needs no new dependency (path_provider)
     // beyond what dart:io already gives us.
-    final savePath = Directory.systemTemp.path;
+    //
+    // A dedicated sub-directory, wiped once per app run: files left over
+    // from an earlier run (app killed mid-stream, remove() never ran) used
+    // to make libtorrent spend ~20 s hash-checking a multi-GB stale file
+    // before the first piece of the new stream was even requested. Each
+    // torrent additionally gets its own private folder inside this one
+    // (see intorrent_add_magnet in native/src/intorrent.cpp).
+    final downloadDir = Directory('${Directory.systemTemp.path}/intorrent_dl');
+    try {
+      if (downloadDir.existsSync()) {
+        downloadDir.deleteSync(recursive: true);
+      }
+    } catch (_) {
+      // Best-effort: if it can't be wiped, the per-torrent sub-folders
+      // still keep new streams from colliding with old files.
+    }
+    try {
+      downloadDir.createSync(recursive: true);
+    } catch (_) {}
+    final savePath = downloadDir.path;
 
     final listenPtr = listenInterfaces?.toNativeUtf8() ?? nullptr;
     final savePathPtr = savePath.toNativeUtf8();
@@ -255,7 +274,8 @@ Future<List<TorrentFile>> listFiles(int id) async {
 
 /// Begins sequential (playback-order) downloading of file [fileIndex]
 /// inside torrent [id], and returns a local URL your video player can
-/// stream directly from.
+/// stream directly from. The first pieces of the file are requested
+/// straight away, before the player has even connected.
 ///
 /// Throws a [StateError] if [id] is invalid, [fileIndex] is out of
 /// range, or the torrent's metadata hasn't arrived yet (check
@@ -294,6 +314,72 @@ Future<Uri> streamUrl(int id, int fileIndex) async {
   } finally {
     calloc.free(pathPtr);
     calloc.free(sizePtr);
+  }
+}
+
+/// How many bytes of file [fileIndex], starting at byte [start], are
+/// already downloaded CONTIGUOUSLY (safe to read in one go), looking at
+/// most [maxLength] bytes ahead. 0 means the piece at [start] is still
+/// missing. Cheap: the native side caches the piece bitfield for ~100 ms.
+///
+/// Typical use: `availableBytes(id, fileIndex, 0, 16 << 20)` = "how much
+/// of the first 16 MiB is ready" for a pre-buffer progress bar.
+///
+/// Throws a [StateError] if [id]/[fileIndex] is invalid or metadata isn't
+/// available yet.
+Future<int> availableBytes(
+    int id, int fileIndex, int start, int maxLength) async {
+  final n = IntorrentBindings().availableBytes(id, fileIndex, start, maxLength);
+  if (n < 0) {
+    throw StateError(
+        'InTorrent: availableBytes failed for id $id, file $fileIndex '
+        '(bad id/fileIndex/range, or metadata not yet available)');
+  }
+  return n;
+}
+
+/// The byte offset in the file that the player's MAIN stream request has
+/// been served up to (i.e. where it will read next), or null if nothing
+/// has been served yet. Tail/cue probes (short ranges) are ignored.
+///
+/// This - not a time-based estimate - is the right place to start a
+/// [startPrefetch] from: it accounts for whatever the player has already
+/// buffered ahead of the playhead.
+int? streamReadCursor(int id) => IntorrentStreamServer.instance.readCursor(id);
+
+/// PAUSE-PREFETCH. Starts downloading [lengthBytes] bytes of file
+/// [fileIndex], beginning at [startByte], in strict order and at full
+/// speed - and nothing else. Only that window stays wanted, so the
+/// download stops when it is complete instead of pulling the whole movie.
+///
+/// Everything already downloaded stays on disk. Call [cancelPrefetch]
+/// (e.g. when the user presses play again) to hand the whole file back to
+/// normal in-order streaming; whatever the prefetch had fetched by then is
+/// kept and used by the player immediately.
+///
+/// Throws a [StateError] if [id]/[fileIndex]/range is invalid or metadata
+/// isn't available yet.
+Future<void> startPrefetch(
+  int id,
+  int fileIndex, {
+  required int startByte,
+  required int lengthBytes,
+}) async {
+  final result =
+      IntorrentBindings().prefetchStart(id, fileIndex, startByte, lengthBytes);
+  if (result != 0) {
+    throw StateError(
+        'InTorrent: could not start prefetch for id $id, file $fileIndex '
+        '(bad id/fileIndex/range, or metadata not yet available)');
+  }
+}
+
+/// Ends a prefetch started with [startPrefetch]. Safe to call when no
+/// prefetch is active. Throws a [StateError] if [id] is unknown.
+Future<void> cancelPrefetch(int id) async {
+  final result = IntorrentBindings().prefetchCancel(id);
+  if (result != 0) {
+    throw StateError('InTorrent: no torrent found for id $id');
   }
 }
 
