@@ -102,6 +102,14 @@ typedef IntorrentIsRangeAvailableDart = int Function(
     int id, int fileIndex, int start, int length);
 
 /// Native signature:
+/// int64_t intorrent_available_bytes(int32_t id, int32_t file_index,
+///                                    int64_t start, int64_t max_len);
+typedef IntorrentAvailableBytesNative = Int64 Function(
+    Int32 id, Int32 fileIndex, Int64 start, Int64 maxLen);
+typedef IntorrentAvailableBytesDart = int Function(
+    int id, int fileIndex, int start, int maxLen);
+
+/// Native signature:
 /// int32_t intorrent_prioritize_range(int32_t id, int32_t file_index,
 ///                                    int64_t start, int64_t length);
 typedef IntorrentPrioritizeRangeNative = Int32 Function(
@@ -117,6 +125,26 @@ typedef IntorrentPrioritizeRangeDart = int Function(
   int start,
   int length,
 );
+
+/// Native signature:
+/// int32_t intorrent_release_range(int32_t id, int32_t file_index,
+///                                  int64_t start, int64_t length);
+typedef IntorrentReleaseRangeNative = Int32 Function(
+    Int32 id, Int32 fileIndex, Int64 start, Int64 length);
+typedef IntorrentReleaseRangeDart = int Function(
+    int id, int fileIndex, int start, int length);
+
+/// Native signature:
+/// int32_t intorrent_prefetch_start(int32_t id, int32_t file_index,
+///                                   int64_t start, int64_t length);
+typedef IntorrentPrefetchStartNative = Int32 Function(
+    Int32 id, Int32 fileIndex, Int64 start, Int64 length);
+typedef IntorrentPrefetchStartDart = int Function(
+    int id, int fileIndex, int start, int length);
+
+/// Native signature: int32_t intorrent_prefetch_cancel(int32_t id);
+typedef IntorrentPrefetchCancelNative = Int32 Function(Int32 id);
+typedef IntorrentPrefetchCancelDart = int Function(int id);
 
 /// Native signature: int32_t intorrent_pause(int32_t id);
 typedef IntorrentPauseNative = Int32 Function(Int32 id);
@@ -153,9 +181,21 @@ class IntorrentBindings {
     isRangeAvailable = _lib
         .lookup<NativeFunction<IntorrentIsRangeAvailableNative>>('intorrent_is_range_available')
         .asFunction<IntorrentIsRangeAvailableDart>();
+    availableBytes = _lib
+        .lookup<NativeFunction<IntorrentAvailableBytesNative>>('intorrent_available_bytes')
+        .asFunction<IntorrentAvailableBytesDart>();
     prioritizeRange = _lib
         .lookup<NativeFunction<IntorrentPrioritizeRangeNative>>('intorrent_prioritize_range')
         .asFunction<IntorrentPrioritizeRangeDart>();
+    releaseRange = _lib
+        .lookup<NativeFunction<IntorrentReleaseRangeNative>>('intorrent_release_range')
+        .asFunction<IntorrentReleaseRangeDart>();
+    prefetchStart = _lib
+        .lookup<NativeFunction<IntorrentPrefetchStartNative>>('intorrent_prefetch_start')
+        .asFunction<IntorrentPrefetchStartDart>();
+    prefetchCancel = _lib
+        .lookup<NativeFunction<IntorrentPrefetchCancelNative>>('intorrent_prefetch_cancel')
+        .asFunction<IntorrentPrefetchCancelDart>();
     pause = _lib
         .lookup<NativeFunction<IntorrentPauseNative>>('intorrent_pause')
         .asFunction<IntorrentPauseDart>();
@@ -176,6 +216,10 @@ class IntorrentBindings {
   late final IntorrentPrepareStreamDart prepareStream;
   late final IntorrentIsRangeAvailableDart isRangeAvailable;
   late final IntorrentPrioritizeRangeDart prioritizeRange;
+  late final IntorrentAvailableBytesDart availableBytes;
+  late final IntorrentReleaseRangeDart releaseRange;
+  late final IntorrentPrefetchStartDart prefetchStart;
+  late final IntorrentPrefetchCancelDart prefetchCancel;
   late final IntorrentPauseDart pause;
   late final IntorrentResumeDart resume;
   late final IntorrentRemoveDart remove;
