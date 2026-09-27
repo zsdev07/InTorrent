@@ -13,10 +13,14 @@
 //     turned "sequential download" into "random download". Priority 7 is
 //     now only ever applied (by set_piece_deadline) to the few pieces the
 //     player needs right now.
-//   * alert_mask narrowed from all_categories to error|status. The old
-//     mask made libtorrent format ~8,000 log alerts per second on its
-//     network thread (peer_log/picker_log/dht_log...) and we wrote each
-//     one to logcat.
+//   * alert_mask narrowed from all_categories to error|status|tracker|
+//     connect. The old all_categories mask made libtorrent format ~8,000
+//     log alerts per second on its network thread (peer_log/picker_log/
+//     dht_log...) and we wrote each one to logcat. tracker+connect were
+//     added back in after error|status alone proved unable to show
+//     *successful* tracker replies or any peer connect/disconnect -
+//     exactly what's needed to tell "no peers exist" apart from "peers
+//     exist but something else is wrong" on a weak-swarm report.
 //   * Session tuned for streaming (tracker announces, request timeouts,
 //     upload cap, extra DHT bootstrap nodes, no seed-dropping).
 //   * Each torrent gets its own save directory, so a leftover file from
@@ -97,10 +101,18 @@ std::string g_save_path = ".";
 // ---- Alert pump ---------------------------------------------------------
 //
 // Drains the alerts we ask for and logs each one's own message() to
-// logcat (`logcat -s InTorrentAlert`). With the narrowed alert_mask below
-// this is quiet: only errors and torrent-state changes. Build with
-// -DINTORRENT_VERBOSE_ALERTS to get the old firehose back when debugging
-// peer/DHT problems.
+// logcat (`logcat -s InTorrentAlert`). With the mask below this stays
+// quiet in the case that matters (a healthy download makes almost no
+// noise) but is no longer blind to the case that doesn't: whether a
+// tracker actually replied (and with how many peers) and whether any
+// peer connection was ever made. Those are exactly the two questions a
+// "stuck at 0 bytes" report needs answered, and the previous
+// error+status-only mask couldn't answer either one - a failed tracker
+// announce showed up (tracker_error_alert is also tagged error), but a
+// *successful* one (tracker_reply_alert) and every peer connect/
+// disconnect were invisible, load-bearing information nobody could see
+// in a bug report. Build with -DINTORRENT_VERBOSE_ALERTS for the full
+// firehose (piece-level/DHT/peer-log detail) when that's not enough.
 void alert_pump_loop(lt::session* session) {
     for (;;) {
         session->wait_for_alert(std::chrono::seconds(30));
@@ -124,7 +136,9 @@ lt::session& get_session() {
 #else
         settings.set_int(lt::settings_pack::alert_mask,
                           lt::alert::error_notification
-                              | lt::alert::status_notification);
+                              | lt::alert::status_notification
+                              | lt::alert::tracker_notification
+                              | lt::alert::connect_notification);
 #endif
 
         // Android's SELinux policy denies untrusted apps direct netlink
