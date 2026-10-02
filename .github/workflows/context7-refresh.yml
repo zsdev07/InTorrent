@@ -1,9 +1,7 @@
 name: Refresh Context7 Docs
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch: 
 
 jobs:
   refresh:
