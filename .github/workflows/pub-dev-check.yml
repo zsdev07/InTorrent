@@ -1,6 +1,8 @@
 name: Pub.dev Quality Check
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -41,6 +43,11 @@ jobs:
 
       - name: Restore tool-generated analysis changes
         run: git checkout -- analysis_options.yaml
+
+      - name: Verify clean git state
+        run: |
+          git status --short
+          test -z "$(git status --short)"
 
       - name: Validate pub.dev package
         run: dart pub publish --dry-run
