@@ -1,0 +1,23 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "InTorrent",
+  "description": "A lightweight Flutter BitTorrent plugin powered by libtorrent, C++ and Dart FFI for magnet links, torrent status, file selection, local HTTP streaming and controlled prefetching.",
+  "folders": [
+    "docs"
+  ],
+  "excludeFolders": [
+    "build",
+    ".dart_tool",
+    ".git",
+    "ci"
+  ],
+  "rules": [
+    "Use the public Dart API in lib/intorrent.dart for application code.",
+    "Do not use internal FFI bindings directly unless working on InTorrent itself.",
+    "InTorrent currently implements the Flutter plugin on Android.",
+    "The native build pins libtorrent to v2.1.1.",
+    "Do not assume planned iOS, Windows, macOS or Linux support is implemented.",
+    "Wait for torrent metadata before calling listFiles or streamUrl.",
+    "Use the documented InTorrent API and examples instead of inventing unsupported methods."
+  ]
+}
