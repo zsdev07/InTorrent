@@ -1,68 +1,147 @@
-<p align="center">
-  <img src="docs/img/logo.png" alt="InTorrent Banner" width="500" />
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/status-mid%20development-yellow" alt="Status" />
-  <img src="https://img.shields.io/badge/license-MIT%20(attribution)-blue" alt="License" />
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/build-android-green" alt="Build - Android" />
-  <img src="https://img.shields.io/badge/build-windows-lightgrey" alt="Build - Windows" />
-  <img src="https://img.shields.io/badge/build-linux-lightgrey" alt="Build - Linux" />
-  <img src="https://img.shields.io/badge/build-macos-lightgrey" alt="Build - macOS" />
-</p>
-
 # InTorrent
 
-InTorrent is an open-source Flutter plugin that wraps the [libtorrent](https://libtorrent.org) C++ engine via a small, focused Dart FFI API. It's built to do one thing well: let a Flutter app add a magnet link, track its status, and stream a file from it with a minimal, predictable surface that stays easy to maintain.
+[![pub package](https://img.shields.io/pub/v/intorrent.svg)](https://pub.dev/packages/intorrent)
+[![pub points](https://img.shields.io/pub/points/intorrent)](https://pub.dev/packages/intorrent/score)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Why InTorrent?
+InTorrent is an Android Flutter plugin that wraps the libtorrent C++ BitTorrent engine through Dart FFI.
 
-Most existing Flutter libtorrent wrappers try to expose the entire libtorrent API surface, which makes them heavy, hard to keep in sync with the native engine, and prone to breaking when native struct layouts drift out of sync with their Dart bindings. InTorrent takes a different approach: a small, deliberately scoped API, with the native and Dart sides built and versioned together in the same repository, so they can't silently drift apart.
+It provides a small API for magnet links, torrent status, file selection, local HTTP streaming, byte availability checks, sequential prefetching, pause/resume, and cleanup.
 
-## Planned API
+## Platform support
 
-InTorrent's API surface is intentionally small:
+| Platform | Status |
+| --- | --- |
+| Android | Supported |
+| iOS | Planned |
+| Windows | Planned |
+| macOS | Planned |
+| Linux | Planned |
+| Web | Not supported |
 
-| Function | Description |
-|---|---|
-| `addMagnet(uri)` | Adds a magnet link and begins metadata/peer resolution. Returns a torrent handle/id. |
-| `getStatus(id)` | Returns live status for a torrent's progress, peer count, download state. |
-| `streamUrl(id, fileIndex)` | Begins sequential (playback-order) downloading of a file inside the torrent and returns a local URL to stream it from. |
-| `pause(id)` | Pauses a torrent. |
-| `resume(id)` | Resumes a paused torrent. |
-| `remove(id)` | Stops a torrent and removes its handle and temporary files. |
+Android builds currently include arm64-v8a, armeabi-v7a, and x86_64.
 
-This list may evolve as development continues, but the goal is to keep it minimal rather than exhaustive.
+## Installation
 
-## Platform Support (planned)
+Add this dependency:
 
-- [x] Android (arm64-v8a, armeabi-v7a, x86_64)
-- [ ] iOS
-- [ ] Windows
-- [ ] macOS
-- [ ] Linux
+    dependencies:
+      intorrent: ^0.0.1
 
-Android is the initial build target; other platforms will follow.
+Then run:
 
-## Building
+    flutter pub get
 
-Build instructions will be added once the initial native build pipeline (GitHub Actions, cross-compiled per ABI) is in place.
+## Quick start
 
-## Design Principles
+The recommended flow is addMagnet, wait for metadata, listFiles, choose a file, then call streamUrl.
 
-- **Small surface, fewer breakages.** Fewer exposed functions means less that can drift or go stale.
-- **Pinned native source.** The native libtorrent version InTorrent builds against is pinned to an exact commit or tag, never a moving branch, so the version you depend on is the version you actually get.
-- **Native and Dart bindings live together.** Both halves of the FFI boundary are maintained in the same repository, in the same commits, to avoid the struct-mismatch class of bugs common in wrapper plugins.
+    import 'package:intorrent/intorrent.dart';
+
+    Future<void> start(String magnetUri) async {
+      final id = await addMagnet(magnetUri);
+
+      TorrentStatus status;
+      do {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        status = await getStatus(id);
+      } while (status.state == TorrentState.downloadingMetadata);
+
+      final files = await listFiles(id);
+      final file = files.first;
+
+      final url = await streamUrl(id, file.index);
+      print(url);
+
+      // Pass url.toString() to your media player.
+      // Call remove(id) when playback is finished.
+    }
+
+Important: metadata must be available before listFiles or streamUrl is called.
+
+## API
+
+- addMagnet(uri): add a magnet URI and return a torrent ID.
+- getStatus(id): return the current torrent status snapshot.
+- listFiles(id): list torrent files after metadata is available.
+- streamUrl(id, fileIndex): prepare sequential downloading and return a local HTTP URL.
+- availableBytes(id, fileIndex, start, maxLength): check contiguous downloaded bytes.
+- streamReadCursor(id): get the current main stream read position.
+- startPrefetch(...): prefetch a byte range in strict order.
+- cancelPrefetch(id): cancel the active prefetch window.
+- pause(id): pause a torrent.
+- resume(id): resume a paused torrent.
+- remove(id): stop and remove a torrent and its temporary files.
+
+See docs/api-reference.md for the complete API reference.
+
+## Streaming
+
+streamUrl returns a local HTTP URL from InTorrent's built-in stream server. The server supports HTTP range requests so media players can seek and buffer while libtorrent downloads pieces in playback order.
+
+Torrents can contain subtitles, samples, artwork, and metadata files, so applications should choose the desired file rather than assuming index 0 is the main video.
+
+See docs/streaming.md for buffering and prefetch details.
+
+## Architecture
+
+    Flutter app
+        |
+        v
+    lib/intorrent.dart
+        |
+        v
+    Dart FFI
+        |
+        v
+    C++ bridge
+        |
+        v
+    libtorrent 2.1.1
+
+The native engine is built through the Android plugin's CMake configuration.
+
+## Documentation
+
+- docs/getting-started.md
+- docs/installation.md
+- docs/magnet-links.md
+- docs/torrent-management.md
+- docs/streaming.md
+- docs/api-reference.md
+- docs/architecture.md
+- docs/troubleshooting.md
+
+## Development
+
+    flutter pub get
+    flutter analyze
+    flutter test
+    dart pub publish --dry-run
+
+For a local pub.dev quality report:
+
+    dart pub global activate pana
+    dart pub global run pana .
+
+## Example
+
+The example app demonstrates adding a magnet, reading status, listing files, generating a stream URL, and removing the torrent.
+
+## Native engine
+
+The Android build pins libtorrent v2.1.1. InTorrent deliberately exposes a small Dart API instead of mirroring the complete libtorrent API.
+
+## Contributing
+
+Issues and pull requests are welcome. When changing the FFI boundary, update the native header, C++ implementation, Dart bindings, public API documentation, and examples together.
 
 ## License
 
-InTorrent is released under a custom MIT-based license with an attribution requirement. Commercial use and forking are both permitted. See [LICENSE](LICENSE) for the full text.
+InTorrent is released under the MIT License with an attribution requirement. See LICENSE.
 
 ## Credits
 
-Built on top of [libtorrent](https://github.com/arvidn/libtorrent) by Arvid Norberg and contributors.
+Built on top of libtorrent by Arvid Norberg and contributors.
 
-InTorrent is developed and maintained by [Developer](https://github.com/zsdev07)
+Maintained by ZSDev07.
