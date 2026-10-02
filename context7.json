@@ -3,7 +3,7 @@
   "projectTitle": "InTorrent",
   "description": "A lightweight Flutter BitTorrent plugin powered by libtorrent, C++ and Dart FFI for magnet links, torrent status, file selection, local HTTP streaming and controlled prefetching.",
   "folders": [
-    "docs"
+    "doc"
   ],
   "excludeFolders": [
     "build",
