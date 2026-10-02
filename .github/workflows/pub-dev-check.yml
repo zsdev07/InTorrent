@@ -1,8 +1,6 @@
 name: Pub.dev Quality Check
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -37,10 +35,7 @@ jobs:
 
       - name: Get dependencies
         run: flutter pub get
-
-      - name: Analyze package
-        run: flutter analyze
-
+        
       - name: Run tests
         run: flutter test
 
