@@ -1,63 +1,13 @@
 name: Publish to pub.dev
 
 on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   publish:
-    name: Validate and publish InTorrent
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Get dependencies
-        run: flutter pub get
-
-      - name: Analyze package
-        run: flutter analyze
-
-      - name: Run tests
-        run: flutter test
-
-      - name: Restore tool-generated analysis changes
-        run: git checkout -- analysis_options.yaml
-
-      - name: Verify clean git state
-        run: |
-          git status --short
-          test -z "$(git status --short)"
-
-      - name: Validate package
-        run: dart pub publish --dry-run
-
-      - name: Authenticate with pub.dev
-        env:
-          PUB_DEV_TOKEN: ${{ secrets.PUB_DEV_TOKEN }}
-        run: |
-          if [ -z "$PUB_DEV_TOKEN" ]; then
-            echo "::error::PUB_DEV_TOKEN secret is not configured."
-            exit 1
-          fi
-          dart pub token add https://pub.dev --env-var PUB_DEV_TOKEN
-
-      - name: Publish to pub.dev
-        run: dart pub publish --force
+    name: Publish InTorrent
+    permissions:
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
