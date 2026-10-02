@@ -1,22 +1,16 @@
-# pubspec.yaml - InTorrent
-#
-# PLACEMENT: repo root, alongside android/, native/, and lib/.
-#
-# The `ffiPlugin: true` line below is what tells Flutter's build
-# system to automatically run android/build.gradle (which in turn
-# runs native/CMakeLists.txt) whenever a consuming app - like InFlex -
-# builds. That's the mechanism that makes manual .so copying
-# unnecessary.
-
 name: intorrent
-description: >
-  A minimal, focused Flutter FFI wrapper around libtorrent - add a
-  magnet link, track its status, and stream a file from it. Built
-  small and pinned on purpose, so the native engine version you
-  depend on is always the one you actually get.
+description: Flutter BitTorrent plugin using libtorrent and Dart FFI for magnet links, torrent status, file selection, streaming, and prefetching.
 version: 0.0.1
 homepage: https://github.com/zsdev07/InTorrent
 repository: https://github.com/zsdev07/InTorrent
+issue_tracker: https://github.com/zsdev07/InTorrent/issues
+
+topics:
+  - flutter
+  - bittorrent
+  - libtorrent
+  - dart-ffi
+  - magnet-links
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -37,7 +31,3 @@ flutter:
     platforms:
       android:
         ffiPlugin: true
-      # ios, windows, macos, linux are planned but not yet implemented -
-      # see README.md's platform support checklist. Adding a platform
-      # here before it's actually wired up would let a consuming app
-      # depend on a platform that silently doesn't work.
