@@ -305,7 +305,7 @@ Future<Uri> streamUrl(int id, int fileIndex) async {
     final filePath = pathPtr.toDartString();
     final totalSize = sizePtr.value;
 
-    return IntorrentStreamServer.instance.registerAndGetUrl(
+    return await IntorrentStreamServer.instance.registerAndGetUrl(
       id: id,
       filePath: filePath,
       fileIndex: fileIndex,
