@@ -121,7 +121,11 @@ class IntorrentStreamServer {
   /// before giving up. Generous, because a fresh torrent can genuinely
   /// take a while to find its first peers - but bounded, so a dead
   /// torrent fails loudly instead of hanging your player forever.
-  static const Duration rangeWaitTimeout = Duration(seconds: 30);
+  // Was 30s. A field log (single-seed, 12-seed movie) showed a steady,
+  // healthy ~100 KB/s trickle that still hadn't produced a complete piece
+  // at byte 0 by the 30s mark - not stalled, just slow. Bumped so a
+  // one-slow-seed source gets a real chance before the player gives up.
+  static const Duration rangeWaitTimeout = Duration(seconds: 60);
 
   /// Called whenever a range request times out. Lets app code (or you,
   /// during testing) see *why* a stream stalled - not just that it did.
